@@ -11,3 +11,4 @@ data/seed/
 *.egg-info/
 .claude/
 .playwright-mcp/
+logs/
