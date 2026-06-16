@@ -10,3 +10,4 @@ data/seed/
 .DS_Store
 *.egg-info/
 .claude/
+.playwright-mcp/
