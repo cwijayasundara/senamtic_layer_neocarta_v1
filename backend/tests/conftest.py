@@ -45,3 +45,11 @@ def neo4j_driver():
 def require_openai():
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set")
+
+
+@pytest.fixture(scope="session")
+def ingested_graph(neo4j_driver, postgres_dsn):
+    """Build the metadata + document graph once (no LLM) for agent tool tests."""
+    from semantic_layer.ingest.pipeline import run_ingest
+    run_ingest(with_llm=False, reset=True)
+    return neo4j_driver
