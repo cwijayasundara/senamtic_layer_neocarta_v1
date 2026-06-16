@@ -1,7 +1,7 @@
 import pytest
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def agent_graph(ingested_graph):
     # ensure chunk embeddings exist so the doc subagent works
     from semantic_layer.ingest.embeddings import embed_chunks
