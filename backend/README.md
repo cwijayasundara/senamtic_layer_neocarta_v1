@@ -35,3 +35,24 @@ sales_order → fiscal_period → customer → industry → country → region.
 
 ## Next plans
 2. Mock enterprise APIs · 3. Graph ingestion · 4. deepagents agent · 5. Web app.
+
+## Mock enterprise APIs (Plan 2)
+
+Four NVIDIA-themed mock REST APIs run as one Uvicorn process (mounted sub-apps),
+serving deterministic in-memory data. Accounts reuse the sales customer base, so
+API records join back to the `sales` data by `account_id` (== `customer_id`).
+
+```bash
+source backend/.venv/bin/activate
+make serve-apis     # uvicorn on http://localhost:8001
+```
+
+| API | Prefix | Key endpoints | OpenAPI |
+|-----|--------|---------------|---------|
+| CRM | `/crm` | `/accounts`, `/contacts`, `/opportunities` | `/crm/openapi.json` |
+| Support/ITSM | `/itsm` | `/tickets`, `/rma` | `/itsm/openapi.json` |
+| Partner inventory | `/partner` | `/partners`, `/inventory` | `/partner/openapi.json` |
+| DGX Cloud telemetry | `/dgx` | `/usage` | `/dgx/openapi.json` |
+
+Health check: `GET /health`. These OpenAPI specs are what Plan 3's NeoCarta API
+extractor introspects into the semantic graph as virtual tables/columns.
