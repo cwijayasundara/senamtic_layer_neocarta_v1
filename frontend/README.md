@@ -1,36 +1,34 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# NeoCarta-Local — Frontend (Plan 5: Web App)
 
-## Getting Started
+An innovative split-canvas UI for the semantic layer: a streaming chat on the left
+and a live knowledge-graph visualization on the right that **animates the path the
+agent took** to answer each question.
 
-First, run the development server:
+## Prerequisites
+- Node.js 20+
+- The backend web API running on port 8000 (`make serve-web` from the repo root),
+  which needs Neo4j + Postgres up, the graph ingested (`make ingest`), and
+  `OPENAI_API_KEY` set in `backend/.env`.
 
+## Setup
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd frontend
+cp .env.local.example .env.local      # NEXT_PUBLIC_API_BASE=http://localhost:8000
+npm install
+npm run dev                           # http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## What you see
+- **Left:** chat with example questions; ask anything across databases, APIs, and
+  documents. Below it, a live **reasoning trace** streams the agent's tool calls
+  (`search_catalog`, `get_join_path`, `run_sql`, `call_api`, …) and results.
+- **Right:** the knowledge graph. When you ask a question, the nodes the agent
+  actually used light up (NVIDIA green / white border) while the rest dim — the
+  traversal the agent took, derived from `get_join_path` / `search_catalog` /
+  `search_documents` results streamed from the backend.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+The chat stream is **step-level** (tool calls/results + final answer), delivered
+over Server-Sent Events from `POST /chat`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Stack
+Next.js 16 (App Router) · React · TypeScript · Tailwind · `react-force-graph-2d`.

@@ -27,10 +27,11 @@ export function useChatStream() {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
-        const frames = buf.split("\n\n");
+        // SSE frames are separated by a blank line; servers may use \n or \r\n.
+        const frames = buf.split(/\r?\n\r?\n/);
         buf = frames.pop() ?? "";
         for (const frame of frames) {
-          const line = frame.split("\n").find((l) => l.startsWith("data:"));
+          const line = frame.split(/\r?\n/).find((l) => l.startsWith("data:"));
           if (!line) continue;
           const evt = JSON.parse(line.slice(5).trim()) as ChatEvent;
           setEvents((prev) => [...prev, evt]);
