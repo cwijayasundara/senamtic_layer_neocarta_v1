@@ -34,3 +34,22 @@ def test_volumes_are_reasonable():
     assert len(data["customers"]) == 40
     assert len(data["sales_orders"]) == 300
     assert len(data["order_lines"]) >= 300
+
+
+def test_order_date_falls_within_its_fiscal_period():
+    data = generate_sales(seed=42)
+    period = {fp["fiscal_period_id"]: fp for fp in data["fiscal_periods"]}
+    for o in data["sales_orders"]:
+        fp = period[o["fiscal_period_id"]]
+        assert fp["start_date"] <= o["order_date"] <= fp["end_date"]
+
+
+def test_order_dates_are_spread_within_periods():
+    data = generate_sales(seed=42)
+    # Orders should not all sit on their period's start date anymore.
+    period = {fp["fiscal_period_id"]: fp for fp in data["fiscal_periods"]}
+    non_start = [
+        o for o in data["sales_orders"]
+        if o["order_date"] != period[o["fiscal_period_id"]]["start_date"]
+    ]
+    assert len(non_start) > 0

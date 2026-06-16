@@ -71,6 +71,7 @@ def seed_all(out_dir: str | None = None, seed_value: int | None = None) -> dict:
     fin = generate_financials(seed=sv)
     fin_path = out / "financials.db"
     con = sqlite3.connect(fin_path)
+    con.execute("PRAGMA foreign_keys = ON")
     con.executescript(_FINANCIALS_DDL)
     _insert(con, "income_statement",
             ["period_id", "fiscal_year", "quarter", "revenue", "gross_margin_pct",
@@ -83,6 +84,7 @@ def seed_all(out_dir: str | None = None, seed_value: int | None = None) -> dict:
     org = generate_org(seed=sv)
     org_path = out / "org.db"
     con = sqlite3.connect(org_path)
+    con.execute("PRAGMA foreign_keys = ON")
     con.executescript(_ORG_DDL)
     _insert(con, "department", ["department_id", "name"], org["departments"])
     _insert(con, "location", ["location_id", "city", "country", "region"], org["locations"])
