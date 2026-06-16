@@ -49,3 +49,12 @@ def test_org_db_enforces_headcount_foreign_keys(tmp_path):
             "VALUES (999999, 12345, 1, 2025, 'Q4', 10)"
         )
     con.close()
+
+
+def test_seed_all_is_rerunnable_into_existing_dir(tmp_path):
+    # Re-seeding an existing org.db must not fail FK enforcement on table drops.
+    seed_all(out_dir=str(tmp_path))
+    seed_all(out_dir=str(tmp_path))  # would raise sqlite3.IntegrityError before the fix
+    con = sqlite3.connect(tmp_path / "org.db")
+    assert con.execute("SELECT COUNT(*) FROM headcount").fetchone()[0] == 240
+    con.close()

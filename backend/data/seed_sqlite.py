@@ -31,19 +31,22 @@ CREATE TABLE stock_price (
 """
 
 _ORG_DDL = """
+-- Drop in child -> parent order so FK enforcement (PRAGMA foreign_keys=ON)
+-- does not reject dropping a parent table that a child still references
+-- when re-seeding an existing database.
+DROP TABLE IF EXISTS headcount;
 DROP TABLE IF EXISTS department;
+DROP TABLE IF EXISTS location;
 CREATE TABLE department (
     department_id INTEGER PRIMARY KEY,
     name          TEXT NOT NULL
 );
-DROP TABLE IF EXISTS location;
 CREATE TABLE location (
     location_id INTEGER PRIMARY KEY,
     city        TEXT NOT NULL,
     country     TEXT NOT NULL,
     region      TEXT NOT NULL
 );
-DROP TABLE IF EXISTS headcount;
 CREATE TABLE headcount (
     snapshot_id    INTEGER PRIMARY KEY,
     department_id  INTEGER NOT NULL REFERENCES department(department_id),
