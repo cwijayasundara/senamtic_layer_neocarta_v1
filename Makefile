@@ -1,4 +1,4 @@
-.PHONY: up down seed seed-postgres seed-sqlite test install
+.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis
 
 install:
 	cd backend && pip install -e ".[dev]"
@@ -22,3 +22,6 @@ seed: seed-postgres seed-sqlite
 
 test:
 	cd backend && python -m pytest -v
+
+serve-apis:
+	cd backend && uvicorn semantic_layer.apis.app:app --port 8001 --reload
