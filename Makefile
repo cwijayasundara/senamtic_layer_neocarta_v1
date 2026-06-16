@@ -1,4 +1,4 @@
-.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest
+.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest ask
 
 install:
 	cd backend && pip install -e ".[dev]"
@@ -28,3 +28,6 @@ serve-apis:
 
 ingest:
 	cd backend && python -m semantic_layer.ingest.pipeline
+
+ask:
+	cd backend && python -m semantic_layer.agent.cli "$(q)"

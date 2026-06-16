@@ -84,3 +84,26 @@ The pipeline runs idempotently (resets, then MERGEs) in this order:
    1536-d) with vector indexes for hybrid search.
 
 Re-running `make ingest` rebuilds the graph from scratch (idempotent).
+
+## Ask the agent (Plan 4)
+
+A deepagents orchestrator (on `gpt-5.4-mini`) answers natural-language questions
+across all sources. It uses graph-backed tools to route — `search_catalog`,
+`get_table_schema`, `get_join_path` (deep-join discovery), `search_documents` —
+and delegates to three subagents: **sql** (grounded read-only text-to-SQL over
+Postgres/SQLite), **api** (the CRM/ITSM/partner/DGX mock APIs), and **doc**
+(vector RAG over the document chunks). It then synthesizes an answer with provenance.
+
+Prerequisites: `make up`, `make seed`, `make ingest`, and `OPENAI_API_KEY` in `backend/.env`.
+
+```bash
+source backend/.venv/bin/activate
+make ask q="Which business segment has the highest total revenue?"
+make ask q="How many open support tickets are there?"
+make ask q="According to the press releases, what drove Data Center growth?"
+make ask q="List EMEA Cloud customers and their open support tickets."   # cross-source
+```
+
+The sql subagent is **grounded**: the orchestrator hands it the resolved tables,
+their `sql_reference`, and the `get_join_path` chain before it writes SQL — so a
+deep 6+-table join is a graph traversal, not blind text-to-SQL.
