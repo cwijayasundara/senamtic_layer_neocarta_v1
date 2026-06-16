@@ -16,6 +16,10 @@ from semantic_layer.ingest.sql_extractor import SchemaBundle
 
 _SCHEMA = "api"
 
+# OpenAPI path-item keys that are operations; other keys (e.g. a path-level
+# `parameters` list, `$ref`, `summary`) must be skipped during extraction.
+_HTTP_METHODS = {"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+
 
 def _resolve_item_schema(operation: dict, components: dict) -> dict | None:
     """Return the object schema of a 200 response (unwrapping array + $ref)."""
@@ -41,6 +45,8 @@ def extract_openapi(spec: dict, source: str) -> SchemaBundle:
     components = spec.get("components", {})
     for path, methods in spec.get("paths", {}).items():
         for method, operation in methods.items():
+            if method.lower() not in _HTTP_METHODS or not isinstance(operation, dict):
+                continue
             endpoint = f"{method.upper()} {path}"
             tid = table_id(source, _SCHEMA, endpoint)
             b.tables.append(Table(id=tid, name=endpoint, description=operation.get("summary")))
