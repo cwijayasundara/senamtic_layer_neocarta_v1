@@ -9,6 +9,12 @@ dependencies = [
     "Faker>=25.0",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "neocarta>=0.7",
+    "liteparse>=2.0",
+    "neo4j>=5.0",
+    "openai>=1.40",
+    "langchain>=0.3",
+    "langchain-openai>=0.2",
 ]
 
 [project.optional-dependencies]
@@ -25,4 +31,8 @@ include = ["semantic_layer*", "data*"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-markers = ["postgres: integration tests that require the docker postgres service"]
+markers = [
+    "postgres: integration tests that require the docker postgres service",
+    "neo4j: tests requiring the docker neo4j service",
+    "openai: tests requiring OPENAI_API_KEY",
+]

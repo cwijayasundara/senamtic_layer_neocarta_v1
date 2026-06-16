@@ -20,6 +20,12 @@ class Settings(BaseSettings):
 
     random_seed: int = 42
 
+    neo4j_database: str = "neo4j"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 1536
+    llm_model: str = "openai:gpt-5.4-mini"
+    docs_dir: str = "../docs"
+
     @property
     def postgres_dsn(self) -> str:
         return (
