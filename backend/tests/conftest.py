@@ -1,7 +1,19 @@
+import os
+
 import psycopg
 import pytest
 
 from semantic_layer.config import settings
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _propagate_openai_key():
+    """Export the .env OPENAI_API_KEY into the process env so the OpenAI SDK,
+    LangChain, and the require_openai gate all see it (pydantic Settings reads
+    .env but does not populate os.environ)."""
+    if settings.openai_api_key and not os.environ.get("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+    yield
 
 
 @pytest.fixture(scope="session")
@@ -31,6 +43,5 @@ def neo4j_driver():
 
 @pytest.fixture(scope="session")
 def require_openai():
-    import os
     if not os.environ.get("OPENAI_API_KEY"):
         pytest.skip("OPENAI_API_KEY not set")
