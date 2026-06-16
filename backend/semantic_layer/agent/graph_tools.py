@@ -66,3 +66,32 @@ def get_table_schema(table_id: str) -> str:
         "table_id": table_id, "source": source,
         "sql_reference": _sql_reference(table_id), "columns": columns,
     })
+
+
+@tool
+def get_join_path(table_a_id: str, table_b_id: str) -> str:
+    """Find the shortest foreign-key join path between two tables (by id).
+
+    Traverses REFERENCES edges in the graph and returns the ordered chain of
+    tables plus the column pairs to JOIN on. Use this to build correct multi-table
+    SQL — especially deep joins across many tables. Returns {found, tables, joins}."""
+    # The join path alternates HAS_COLUMN (move into a table's column) and
+    # REFERENCES (cross an FK to another table's column). A column-only path
+    # would be disconnected, since columns within a table are not linked.
+    records = driver().execute_query(
+        """
+        MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
+        MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES*1..24]-(tb))
+        RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes
+        ORDER BY length(p) LIMIT 1
+        """,
+        a=table_a_id, b=table_b_id, database_=settings.neo4j_database,
+    ).records
+    if not records or not records[0]["nodes"]:
+        return json.dumps({"found": False, "tables": [], "joins": []})
+    nodes = records[0]["nodes"]
+    tables = [n.split("|", 1)[1] for n in nodes if n.startswith("Table|")]
+    cols = [n.split("|", 1)[1] for n in nodes if n.startswith("Column|")]
+    # columns come in REFERENCES-linked pairs between adjacent tables
+    joins = [{"on": [cols[i], cols[i + 1]]} for i in range(0, len(cols) - 1, 2)]
+    return json.dumps({"found": True, "tables": tables, "joins": joins})
