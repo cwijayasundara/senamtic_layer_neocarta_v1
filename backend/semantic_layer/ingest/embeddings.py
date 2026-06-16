@@ -2,7 +2,6 @@
 
 from neo4j import Driver
 
-import neocarta.ingest.indexes as nc_indexes
 from neocarta.enrichment.embeddings import OpenAIEmbeddingsConnector
 
 from semantic_layer.config import settings
@@ -35,26 +34,24 @@ def embed_chunks(driver: Driver, batch: int = 64) -> None:
 
 
 def _ensure_chunk_vector_index(driver: Driver) -> None:
-    try:
-        nc_indexes.create_vector_index(
-            driver,
-            node_label="Chunk",
-            dimensions=settings.embedding_dimensions,
-            database_name=settings.neo4j_database,
+    """Create a vector index named `chunk_embeddings` on Chunk.embedding.
+
+    We deliberately own the index name (rather than NeoCarta's auto-generated
+    one) so that search tools can query it by a stable name. Any pre-existing
+    NeoCarta-named index on the same property is dropped first to avoid a
+    duplicate-index error."""
+    with driver.session(database=settings.neo4j_database) as session:
+        session.run("DROP INDEX chunk_vector_index IF EXISTS")
+        session.run(
+            f"""
+            CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS
+            FOR (c:Chunk) ON (c.embedding)
+            OPTIONS {{indexConfig: {{
+              `vector.dimensions`: {settings.embedding_dimensions},
+              `vector.similarity_function`: 'cosine'
+            }}}}
+            """
         )
-    except Exception:
-        # Fallback to raw Cypher if NeoCarta's helper targets a different property.
-        with driver.session(database=settings.neo4j_database) as session:
-            session.run(
-                f"""
-                CREATE VECTOR INDEX chunk_embeddings IF NOT EXISTS
-                FOR (c:Chunk) ON (c.embedding)
-                OPTIONS {{indexConfig: {{
-                  `vector.dimensions`: {settings.embedding_dimensions},
-                  `vector.similarity_function`: 'cosine'
-                }}}}
-                """
-            )
 
 
 def embed_metadata_nodes(driver: Driver) -> None:
