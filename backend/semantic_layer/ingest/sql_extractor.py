@@ -1,6 +1,7 @@
 """Introspect live SQL databases into NeoCarta metadata-layer model objects."""
 
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass, field
 
 import psycopg
@@ -100,30 +101,32 @@ def extract_postgres(dsn: str, source: str = "sales_pg", schema_name: str = "sal
 
 def extract_sqlite(db_path: str, source: str, schema_name: str = "main") -> SchemaBundle:
     b = _bundle_for(source, schema_name, platform="sqlite")
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
-    tables = [r[0] for r in con.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-    ).fetchall()]
-    for t in tables:
-        b.tables.append(Table(id=table_id(source, schema_name, t), name=t))
-        b.has_table.append(HasTable(schema_id=schema_id(source, schema_name), table_id=table_id(source, schema_name, t)))
-        info = con.execute(f"PRAGMA table_info({t})").fetchall()
-        fk_list = con.execute(f"PRAGMA foreign_key_list({t})").fetchall()
-        fk_cols = {row["from"] for row in fk_list}
-        for row in info:
-            cid = column_id(source, schema_name, t, row["name"])
-            b.columns.append(Column(
-                id=cid, name=row["name"], type=row["type"] or "TEXT",
-                nullable=(row["notnull"] == 0),
-                is_primary_key=bool(row["pk"]), is_foreign_key=row["name"] in fk_cols,
-            ))
-            b.has_column.append(HasColumn(table_id=table_id(source, schema_name, t), column_id=cid))
-        for row in fk_list:
-            b.references.append(References(
-                source_column_id=column_id(source, schema_name, t, row["from"]),
-                target_column_id=column_id(source, schema_name, row["table"], row["to"]),
-                criteria=f"{t}.{row['from']} -> {row['table']}.{row['to']}",
-            ))
-    con.close()
+    # `closing` guarantees the connection is closed even if introspection raises.
+    with closing(sqlite3.connect(db_path)) as con:
+        con.row_factory = sqlite3.Row
+        tables = [r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+        ).fetchall()]
+        for t in tables:
+            b.tables.append(Table(id=table_id(source, schema_name, t), name=t))
+            b.has_table.append(HasTable(schema_id=schema_id(source, schema_name), table_id=table_id(source, schema_name, t)))
+            # `t` comes from sqlite_master (not caller input); PRAGMA does not
+            # support parameter binding, so interpolation is safe here.
+            info = con.execute(f"PRAGMA table_info({t})").fetchall()
+            fk_list = con.execute(f"PRAGMA foreign_key_list({t})").fetchall()
+            fk_cols = {row["from"] for row in fk_list}
+            for row in info:
+                cid = column_id(source, schema_name, t, row["name"])
+                b.columns.append(Column(
+                    id=cid, name=row["name"], type=row["type"] or "TEXT",
+                    nullable=(row["notnull"] == 0),
+                    is_primary_key=bool(row["pk"]), is_foreign_key=row["name"] in fk_cols,
+                ))
+                b.has_column.append(HasColumn(table_id=table_id(source, schema_name, t), column_id=cid))
+            for row in fk_list:
+                b.references.append(References(
+                    source_column_id=column_id(source, schema_name, t, row["from"]),
+                    target_column_id=column_id(source, schema_name, row["table"], row["to"]),
+                    criteria=f"{t}.{row['from']} -> {row['table']}.{row['to']}",
+                ))
     return b
