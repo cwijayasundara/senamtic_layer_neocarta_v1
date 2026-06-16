@@ -63,7 +63,7 @@ echo "OPENAI_API_KEY=sk-..." >> backend/.env      # backend/.env may be a symlin
 ./setup.sh
 
 # 3. start the web UI
-./start-ui.sh        # http://localhost:3000
+./start-ui.sh        # http://localhost:3005  (pass a port: ./start-ui.sh 3010)
 ```
 
 `setup.sh` is idempotent — it starts Neo4j + Postgres, installs the Python venv, seeds
@@ -88,7 +88,7 @@ Stop everything: `kill $(cat logs/*.pid) 2>/dev/null; docker compose down`.
 | Postgres (sales) | `localhost:5432` | Docker (`setup.sh`) |
 | Mock enterprise APIs | `http://localhost:8001/docs` | `setup.sh` |
 | Agent web API (SSE) | `http://localhost:8000` | `setup.sh` |
-| Web UI | `http://localhost:3000` | `start-ui.sh` |
+| Web UI | `http://localhost:3005` | `start-ui.sh` |
 
 ---
 
