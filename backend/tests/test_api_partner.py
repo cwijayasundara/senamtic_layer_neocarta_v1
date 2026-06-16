@@ -22,4 +22,6 @@ def test_list_inventory_and_available_consistency():
 def test_filter_inventory_by_partner_and_product_line():
     r = client.get("/inventory", params={"partner_id": 1, "product_line": "B200"})
     assert r.status_code == 200
-    assert all(i["partner_id"] == 1 and i["product_line"] == "B200" for i in r.json())
+    rows = r.json()
+    assert len(rows) > 0
+    assert all(i["partner_id"] == 1 and i["product_line"] == "B200" for i in rows)

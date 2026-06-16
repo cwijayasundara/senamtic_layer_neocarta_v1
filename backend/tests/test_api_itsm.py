@@ -30,4 +30,6 @@ def test_get_ticket_404_for_missing():
 def test_list_rmas():
     r = client.get("/rma")
     assert r.status_code == 200
-    assert isinstance(r.json(), list)
+    body = r.json()
+    assert isinstance(body, list)
+    assert len(body) > 0
