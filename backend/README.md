@@ -107,3 +107,23 @@ make ask q="List EMEA Cloud customers and their open support tickets."   # cross
 The sql subagent is **grounded**: the orchestrator hands it the resolved tables,
 their `sql_reference`, and the `get_join_path` chain before it writes SQL — so a
 deep 6+-table join is a graph traversal, not blind text-to-SQL.
+
+## Web API (Plan 5)
+
+The web API powers the Next.js UI. It runs on port 8000:
+
+```bash
+source backend/.venv/bin/activate
+make serve-web      # uvicorn semantic_layer.web.app:app --port 8000
+```
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/health` | GET | liveness |
+| `/sources` | GET | source catalog (sql/api) |
+| `/graph` | GET | schema-level knowledge graph (source/table/document nodes + REFERENCES) |
+| `/chat` | POST | **SSE** stream of the agent's tool trace + a `highlight` node-set + final answer |
+
+`/chat` emits step-level events (`tool_call`, `tool_result`, `answer`) by driving the
+Plan 4 agent with `agent.stream(stream_mode="updates", subgraphs=True)`. The frontend
+(`frontend/`, Next.js on port 3000) consumes this to animate the graph traversal.
