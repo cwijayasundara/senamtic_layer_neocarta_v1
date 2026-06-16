@@ -56,3 +56,31 @@ make serve-apis     # uvicorn on http://localhost:8001
 
 Health check: `GET /health`. These OpenAPI specs are what Plan 3's NeoCarta API
 extractor introspects into the semantic graph as virtual tables/columns.
+
+## Graph ingestion (Plan 3)
+
+Builds the unified semantic + context graph in Neo4j from all three source types.
+
+Prerequisites: `make up` (Neo4j + Postgres), `make seed` (databases), and
+`OPENAI_API_KEY` in `backend/.env` (for entities, glossary, embeddings).
+
+```bash
+source backend/.venv/bin/activate
+make ingest        # python -m semantic_layer.ingest.pipeline
+```
+
+The pipeline runs idempotently (resets, then MERGEs) in this order:
+
+1. **Metadata layer (NeoCarta):** Postgres + 2 SQLite DBs + 4 mock-API OpenAPI
+   specs -> `Database -> Schema -> Table -> Column` with `REFERENCES` (FK) edges.
+   APIs are modelled as virtual tables (endpoints) / columns (response fields).
+2. **Document layer:** the NVIDIA PDFs are parsed with liteparse v2, chunked,
+   and stored as `Document -> Chunk` nodes.
+3. **Entity layer:** POLE+O entities extracted from chunks via the LLM, linked
+   `Chunk -> MENTIONS -> Entity` (provenance = the chunk).
+4. **Glossary bridge:** LLM-generated `BusinessTerm` nodes tagged onto columns
+   via `Column -> TAGGED_WITH -> BusinessTerm`.
+5. **Embeddings:** chunk + metadata-node embeddings (`text-embedding-3-small`,
+   1536-d) with vector indexes for hybrid search.
+
+Re-running `make ingest` rebuilds the graph from scratch (idempotent).
