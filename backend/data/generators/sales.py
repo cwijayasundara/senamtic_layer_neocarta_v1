@@ -1,6 +1,7 @@
 """Deterministic synthetic sales facts built on the curated dimensions."""
 
 import random
+from datetime import date, timedelta
 
 from faker import Faker
 
@@ -58,12 +59,16 @@ def generate_sales(seed=42, n_customers=40, n_orders=300):
     sales_orders = []
     for oid in range(1, n_orders + 1):
         fpid = rng.choice(fiscal_period_ids)
+        period = fp_by_id[fpid]
+        start = date.fromisoformat(period["start_date"])
+        end = date.fromisoformat(period["end_date"])
+        order_day = start + timedelta(days=rng.randint(0, (end - start).days))
         sales_orders.append(
             {
                 "order_id": oid,
                 "customer_id": rng.choice(customer_ids),
                 "fiscal_period_id": fpid,
-                "order_date": fp_by_id[fpid]["start_date"],
+                "order_date": order_day.isoformat(),
             }
         )
 

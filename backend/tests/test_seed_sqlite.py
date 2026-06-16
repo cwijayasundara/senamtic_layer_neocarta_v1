@@ -34,3 +34,18 @@ def test_org_join_returns_headcount_by_region(tmp_path):
     con.close()
     assert len(rows) > 0
     assert all(total > 0 for _, total in rows)
+
+
+def test_org_db_enforces_headcount_foreign_keys(tmp_path):
+    import pytest
+
+    seed_all(out_dir=str(tmp_path))
+    con = sqlite3.connect(tmp_path / "org.db")
+    con.execute("PRAGMA foreign_keys = ON")
+    with pytest.raises(sqlite3.IntegrityError):
+        con.execute(
+            "INSERT INTO headcount "
+            "(snapshot_id, department_id, location_id, fiscal_year, quarter, employee_count) "
+            "VALUES (999999, 12345, 1, 2025, 'Q4', 10)"
+        )
+    con.close()
