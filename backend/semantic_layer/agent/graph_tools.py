@@ -95,3 +95,48 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
     # columns come in REFERENCES-linked pairs between adjacent tables
     joins = [{"on": [cols[i], cols[i + 1]]} for i in range(0, len(cols) - 1, 2)]
     return json.dumps({"found": True, "tables": tables, "joins": joins})
+
+
+@tool
+def search_catalog(query: str, limit: int = 20) -> str:
+    """Search the catalog for tables, columns, and business terms matching a query.
+
+    Case-insensitive keyword match over names/descriptions across all sources
+    (databases and APIs). Returns ranked JSON hits with their source and table so
+    you can pick where to get the data. Start here to route a question."""
+    terms = [t for t in query.lower().split() if len(t) > 2]
+    if not terms:
+        terms = [query.lower()]
+    column_hits = driver().execute_query(
+        """
+        UNWIND $terms AS term
+        MATCH (c:Column)<-[:HAS_COLUMN]-(t:Table)
+        WHERE toLower(c.name) CONTAINS term
+        WITH c, t, count(*) AS score
+        RETURN 'column' AS kind, c.id AS id, c.name AS name,
+               t.id AS table_id, score ORDER BY score DESC LIMIT $limit
+        """,
+        terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
+    table_hits = driver().execute_query(
+        """
+        UNWIND $terms AS term
+        MATCH (t:Table) WHERE toLower(t.name) CONTAINS term
+        WITH t, count(*) AS score
+        RETURN 'table' AS kind, t.id AS id, t.name AS name,
+               t.id AS table_id, score ORDER BY score DESC LIMIT $limit
+        """,
+        terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
+    term_hits = driver().execute_query(
+        """
+        UNWIND $terms AS term
+        MATCH (col:Column)-[:TAGGED_WITH]->(bt:BusinessTerm)
+        WHERE toLower(bt.name) CONTAINS term OR toLower(coalesce(bt.description,'')) CONTAINS term
+        RETURN DISTINCT 'business_term' AS kind, bt.id AS id, bt.name AS name,
+               col.id AS table_id, 1 AS score LIMIT $limit
+        """,
+        terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
+    hits = [dict(r) for r in (list(column_hits) + list(table_hits) + list(term_hits))]
+    return json.dumps(hits[:limit])
