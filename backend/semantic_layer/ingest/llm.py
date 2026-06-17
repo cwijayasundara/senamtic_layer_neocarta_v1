@@ -17,9 +17,9 @@ def _ensure_key() -> None:
         os.environ["OPENAI_API_KEY"] = settings.openai_api_key
 
 
-def get_chat_model():
+def get_chat_model(model: str | None = None):
     _ensure_key()
-    return init_chat_model(settings.llm_model)
+    return init_chat_model(model or settings.llm_model)
 
 
 def get_openai_client() -> openai.OpenAI:

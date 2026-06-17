@@ -105,12 +105,11 @@ Append to `backend/tests/test_planner_intent.py`:
 ```python
 def test_get_chat_model_accepts_model_override(monkeypatch):
     import semantic_layer.ingest.llm as llm_mod
-    captured = {}
-    monkeypatch.setattr(llm_mod, "init_chat_model", lambda m: captured.setdefault("m", m))
-    llm_mod.get_chat_model("openai:some-model")
-    assert captured["m"] == "openai:some-model"
-    llm_mod.get_chat_model()  # default path
-    assert captured["m"] == llm_mod.settings.llm_model
+    calls = []
+    monkeypatch.setattr(llm_mod, "init_chat_model", lambda m: calls.append(m))
+    llm_mod.get_chat_model("openai:some-model")  # explicit override
+    llm_mod.get_chat_model()                     # default path
+    assert calls == ["openai:some-model", llm_mod.settings.llm_model]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
