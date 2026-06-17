@@ -4,6 +4,7 @@ import json
 from typing import Iterator
 
 from semantic_layer.agent.build import build_agent
+from semantic_layer.config import settings
 from semantic_layer.web.grounding import check_numeric_grounding
 
 
@@ -95,29 +96,35 @@ def stream_chat_events(question: str) -> Iterator[dict]:
     prov = _Provenance()
     pending: dict[str, dict] = {}   # tool_call_id -> args, to pair with its result
     final = ""
-    for ns, chunk in agent.stream(
-        {"messages": [{"role": "user", "content": question}]},
-        stream_mode="updates", subgraphs=True,
-    ):
-        scope = ns[-1].split(":")[0] if ns else "root"
-        for _node, update in chunk.items():
-            messages = update.get("messages", []) if isinstance(update, dict) else []
-            for m in messages:
-                for call in getattr(m, "tool_calls", None) or []:
-                    if call.get("id"):
-                        pending[call["id"]] = call.get("args", {})
-                    yield {"type": "tool_call", "scope": scope,
-                           "name": call.get("name"), "args": call.get("args", {})}
-                if type(m).__name__ == "ToolMessage":
-                    name = getattr(m, "name", "")
-                    content = str(getattr(m, "content", ""))
-                    args = pending.get(getattr(m, "tool_call_id", None), {})
-                    _collect_highlight(name, content, highlight)
-                    prov.record(name, args, content)
-                    yield {"type": "tool_result", "scope": scope,
-                           "name": name, "content": content[:4000]}
-                elif type(m).__name__ == "AIMessage" and getattr(m, "content", None) \
-                        and not getattr(m, "tool_calls", None):
-                    final = m.content
+    try:
+        for ns, chunk in agent.stream(
+            {"messages": [{"role": "user", "content": question}]},
+            stream_mode="updates", subgraphs=True,
+            config={"recursion_limit": settings.agent_recursion_limit},
+        ):
+            scope = ns[-1].split(":")[0] if ns else "root"
+            for _node, update in chunk.items():
+                messages = update.get("messages", []) if isinstance(update, dict) else []
+                for m in messages:
+                    for call in getattr(m, "tool_calls", None) or []:
+                        if call.get("id"):
+                            pending[call["id"]] = call.get("args", {})
+                        yield {"type": "tool_call", "scope": scope,
+                               "name": call.get("name"), "args": call.get("args", {})}
+                    if type(m).__name__ == "ToolMessage":
+                        name = getattr(m, "name", "")
+                        content = str(getattr(m, "content", ""))
+                        args = pending.get(getattr(m, "tool_call_id", None), {})
+                        _collect_highlight(name, content, highlight)
+                        prov.record(name, args, content)
+                        yield {"type": "tool_result", "scope": scope,
+                               "name": name, "content": content[:4000]}
+                    elif type(m).__name__ == "AIMessage" and getattr(m, "content", None) \
+                            and not getattr(m, "tool_calls", None):
+                        final = m.content
+    except Exception as exc:  # noqa: BLE001 — never leave the UI hanging without a final answer
+        note = (f"The agent stopped early ({type(exc).__name__}: {exc}). "
+                "Any partial results gathered so far are shown above.")
+        final = f"{final}\n\n_{note}_" if final else note
     yield {"type": "answer", "content": final, "highlight": sorted(highlight),
            **prov.answer_fields(final)}

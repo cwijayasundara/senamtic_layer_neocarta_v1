@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     llm_model: str = "openai:gpt-5.4-mini"
     docs_dir: str = "../docs"
     agent_max_rows: int = 100
+    # LangGraph superstep cap. Heavy multi-subagent questions need well above the
+    # default 25; otherwise the run raises GraphRecursionError partway through.
+    agent_recursion_limit: int = 100
 
     @property
     def postgres_dsn(self) -> str:
