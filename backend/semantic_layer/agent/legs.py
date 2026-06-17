@@ -1,0 +1,71 @@
+"""Leg workers: execute one pre-resolved plan slice with a single structured LLM call.
+
+Each leg receives an exact slice of the Plan (tables, joins, filters, endpoints) — no
+discovery — writes/selects what to run, executes a deterministic tool, and returns a
+structured result the controller folds into the answer.
+"""
+
+import json
+
+from pydantic import BaseModel
+
+from semantic_layer.agent.graph_tools import _sql_reference
+from semantic_layer.agent.sql_tools import _run
+from semantic_layer.ingest.llm import get_chat_model
+from semantic_layer.config import settings
+
+
+class _SqlDraft(BaseModel):
+    sql: str
+
+
+_SQL_LEG_PROMPT = (
+    "You are a SQL expert. Write ONE read-only SELECT for the given plan slice and nothing "
+    "else. Use the exact table references and join column pairs provided. Match dimension "
+    "name filters case-insensitively with ILIKE '%value%'. If a fiscal scope is given and "
+    "the fact is order_line, reach the period via order_line->sales_order(order_id)->"
+    "fiscal_period(fiscal_period_id) and filter fiscal_year/quarter; if the fact is "
+    "income_statement, filter its own fiscal_year/quarter columns. Return only the SQL."
+)
+
+
+def _col(cid: str) -> str:
+    """Readable table.column from a column id col:src.schema.table.column."""
+    parts = cid.split(":", 1)[1].split(".")
+    return f"{parts[-2]}.{parts[-1]}"
+
+
+def _sql_brief(leg: dict) -> str:
+    lines = [f"Source: {leg['source']}",
+             f"Fact table: {_sql_reference(leg['fact_table'])}"]
+    for jt in leg.get("join_targets", []):
+        pairs = ", ".join(f"{_col(j['on'][0])} = {_col(j['on'][1])}" for j in jt["joins"])
+        lines.append(f"Join {_sql_reference(jt['table_id'])} ON {pairs}")
+    for f in leg.get("filters", []):
+        lines.append(f"Filter {_sql_reference(f['table_id'])}.{f['column']} ~ '{f['value']}'")
+    scope = leg.get("scope") or {}
+    if scope.get("fiscal_year"):
+        lines.append(f"Scope: fiscal_year={scope['fiscal_year']} quarter={scope.get('quarter')}")
+    if leg.get("metrics"):
+        lines.append(f"Select these measures: {', '.join(leg['metrics'])}")
+    return "\n".join(lines)
+
+
+def _draft_and_run(model, brief: str, source: str, extra: str = "") -> tuple[str, dict]:
+    draft = model.invoke([("system", _SQL_LEG_PROMPT), ("human", brief + extra)])
+    return draft.sql, json.loads(_run(source, draft.sql))
+
+
+def run_sql_leg(leg: dict) -> dict:
+    brief = _sql_brief(leg)
+    model = get_chat_model(settings.llm_model).with_structured_output(_SqlDraft)
+    sql, out = _draft_and_run(model, brief, leg["source"])
+    if isinstance(out, dict) and "error" in out:
+        sql, out = _draft_and_run(model, brief, leg["source"],
+                                  extra=f"\n\nThe previous SQL failed: {out['error']}\nFix it.")
+    if isinstance(out, dict) and "error" in out:
+        return {"source": leg["source"], "sql": sql, "columns": [], "rows": [],
+                "row_count": 0, "error": out["error"]}
+    rows = out.get("rows", [])
+    return {"source": leg["source"], "sql": sql, "columns": out.get("columns", []),
+            "rows": rows, "row_count": len(rows), "error": None}
