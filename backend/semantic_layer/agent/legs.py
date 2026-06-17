@@ -27,7 +27,8 @@ _SQL_LEG_PROMPT = (
     "name filters case-insensitively with ILIKE '%value%'. If a fiscal scope is given and "
     "the fact is order_line, reach the period via order_line->sales_order(order_id)->"
     "fiscal_period(fiscal_period_id) and filter fiscal_year/quarter; if the fact is "
-    "income_statement, filter its own fiscal_year/quarter columns. Return only the SQL."
+    "income_statement, filter its own fiscal_year/quarter columns. ALWAYS apply the scope "
+    "when one is given. Return only the SQL."
 )
 
 
@@ -93,8 +94,9 @@ class _ApiCalls(BaseModel):
 
 
 _API_LEG_PROMPT = (
-    "Pick the mock-API calls that answer the given lookups. Sources & endpoints: "
-    "crm (/accounts,/contacts,/opportunities), itsm (/tickets,/rma), "
+    "Pick the mock-API calls that answer the given lookups. Make at least one call for "
+    "EACH lookup listed (e.g. DGX usage AND open tickets are two separate calls). "
+    "Sources & endpoints: crm (/accounts,/contacts,/opportunities), itsm (/tickets,/rma), "
     "partner (/partners,/inventory), dgx (/usage). Use query params to filter "
     "(e.g. {'status':'open'} for open tickets). Return the list of calls to make."
 )

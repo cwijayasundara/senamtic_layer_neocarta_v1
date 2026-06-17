@@ -8,6 +8,7 @@ read plus a few set-based graph queries.
 """
 
 import json
+import re
 
 from pydantic import BaseModel, Field
 
@@ -153,7 +154,21 @@ def build_plan(intent: "Intent") -> dict:
     """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
 
-    scope = {"fiscal_year": intent.fiscal_year, "quarter": intent.quarter}
+    # Document context first, so a question with no explicit period can scope SQL to the
+    # period the cited press release reports ("compare with the latest release").
+    doc_leg = None
+    if intent.needs_doc:
+        ctx = _context_docs(intent.terms)
+        if ctx is not None:
+            doc_leg = {"doc_query": intent.doc_query, **ctx}
+
+    fiscal_year, quarter = intent.fiscal_year, intent.quarter
+    if fiscal_year is None and doc_leg and doc_leg.get("periods"):
+        m = re.match(r"FY(\d{4})-(Q\d)", sorted(doc_leg["periods"])[-1])
+        if m:
+            fiscal_year, quarter = int(m.group(1)), m.group(2)
+    scope = {"fiscal_year": fiscal_year, "quarter": quarter}
+
     sql_legs = []
     sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
     dim_targets = _dimension_targets(intent.group_by) if intent.needs_sql else []
@@ -178,12 +193,6 @@ def build_plan(intent: "Intent") -> dict:
         })
     for leg in sql_legs:  # real column names so the leg writes valid SQL, not guesses
         leg["columns"] = _table_columns(leg["fact_table"])
-
-    doc_leg = None
-    if intent.needs_doc:
-        ctx = _context_docs(intent.terms)
-        if ctx is not None:
-            doc_leg = {"doc_query": intent.doc_query, **ctx}
 
     api_correlations = _api_correlations() if intent.needs_api else []
 
