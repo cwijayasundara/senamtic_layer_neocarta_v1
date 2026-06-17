@@ -94,7 +94,9 @@ _API_LEG_PROMPT = (
 
 
 def run_api_leg(api_intents: list[str]) -> dict:
-    model = get_chat_model(settings.llm_model).with_structured_output(_ApiCalls)
+    # function_calling tolerates the open `params` dict; strict structured output rejects it.
+    model = get_chat_model(settings.llm_model).with_structured_output(
+        _ApiCalls, method="function_calling")
     plan = model.invoke([("system", _API_LEG_PROMPT),
                          ("human", "Lookups: " + "; ".join(api_intents))])
     results = []

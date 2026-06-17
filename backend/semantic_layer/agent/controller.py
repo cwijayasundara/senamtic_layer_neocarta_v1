@@ -48,8 +48,17 @@ def answer_stream(question: str) -> Iterator[dict]:
 
             sql_runs, api_calls, doc_texts, doc_citations, doc = [], [], [], [], None
             for fut in list(jobs):
-                kind, _label = jobs[fut]
-                res = fut.result()
+                kind, label = jobs[fut]
+                try:
+                    res = fut.result()
+                except Exception as exc:  # noqa: BLE001 — one leg failing must not sink the answer
+                    if kind == "sql":
+                        res = {"source": label, "sql": "", "columns": [], "rows": [],
+                               "row_count": 0, "error": str(exc)}
+                    elif kind == "api":
+                        res = {"calls": [], "error": str(exc)}
+                    else:
+                        res = {"answer": "", "citations": [], "doc_texts": [], "error": str(exc)}
                 yield {"type": "tool_result", "scope": kind, "name": f"{kind}_leg",
                        "content": json.dumps(res, default=str)[:4000]}
                 if kind == "sql":

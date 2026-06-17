@@ -17,7 +17,7 @@ class _FakeModel:
     def __init__(self, draft):
         self._draft = draft
 
-    def with_structured_output(self, _schema):
+    def with_structured_output(self, _schema, **_kwargs):
         return _FakeStructured(self._draft)
 
 
