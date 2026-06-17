@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
     llm_model: str = "openai:gpt-5.4-mini"
+    # The powerful model for intent extraction (and synthesis); falls back to
+    # llm_model when unset. Set e.g. planner_model=openai:gpt-5.5 in .env to opt in.
+    planner_model: str | None = None
+    synthesis_model: str | None = None
     docs_dir: str = "../docs"
     agent_max_rows: int = 100
     # LangGraph superstep cap. Heavy multi-subagent questions need well above the
@@ -36,6 +40,14 @@ class Settings(BaseSettings):
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @property
+    def planner_model_resolved(self) -> str:
+        return self.planner_model or self.llm_model
+
+    @property
+    def synthesis_model_resolved(self) -> str:
+        return self.synthesis_model or self.planner_model or self.llm_model
 
 
 settings = Settings()
