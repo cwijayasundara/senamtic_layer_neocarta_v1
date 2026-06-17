@@ -39,3 +39,17 @@ def test_join_path_none_when_disconnected(ingested_graph):
         "table_b_id": "table:financials.main.stock_price",
     }))
     assert result["found"] is False
+
+
+@pytest.mark.neo4j
+def test_join_path_bridges_sql_to_api(ingested_graph):
+    # The SAME_ENTITY bridge (customer_id -> account_id) lets order_line reach an API
+    # endpoint.  The bridge is column-level, so the customer TABLE is not a node in the
+    # shortest path; the path goes order_line -> sales_order -> GET /tickets.
+    result = json.loads(get_join_path.invoke({
+        "table_a_id": "table:sales_pg.sales.order_line",
+        "table_b_id": "table:itsm.api.GET /tickets",
+    }))
+    assert result["found"] is True
+    assert "table:sales_pg.sales.sales_order" in result["tables"]
+    assert result["tables"][-1] == "table:itsm.api.GET /tickets"
