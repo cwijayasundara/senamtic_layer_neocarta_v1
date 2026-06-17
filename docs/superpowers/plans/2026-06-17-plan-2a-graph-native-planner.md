@@ -333,7 +333,8 @@ _SALES_FACT = "table:sales_pg.sales.order_line"
 _RESOLVE_CYPHER = """
 UNWIND $rows AS row
 MATCH (db:Database)-[:HAS_SCHEMA]->(:Schema)-[:HAS_TABLE]->(t:Table)
-     -[:HAS_COLUMN]->(c:Column)-[:HAS_VALUE]->(v:Value {norm: row.norm})
+     -[:HAS_COLUMN]->(c:Column)-[:HAS_VALUE]->(v:Value)
+WHERE v.norm = row.norm OR v.norm CONTAINS row.norm
 RETURN row.term AS term, db.name AS source, t.id AS table_id,
        c.name AS column, v.name AS exact
 """
