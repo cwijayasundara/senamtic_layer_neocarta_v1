@@ -106,18 +106,25 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
     Traverses REFERENCES edges in the graph and returns the ordered chain of
     tables plus the column pairs to JOIN on. Use this to build correct multi-table
     SQL — especially deep joins across many tables. Returns {found, tables, joins}."""
+    # A table joins to itself with zero hops. shortestPath rejects a search where
+    # start == end (Neo4j's forbid_shortestpath_common_nodes), so short-circuit here.
+    if table_a_id == table_b_id:
+        return json.dumps({"found": True, "tables": [table_a_id], "joins": []})
     # The join path alternates HAS_COLUMN (move into a table's column) and
     # REFERENCES (cross an FK to another table's column). A column-only path
     # would be disconnected, since columns within a table are not linked.
-    records = driver().execute_query(
-        """
-        MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
-        MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES*1..24]-(tb))
-        RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes
-        ORDER BY length(p) LIMIT 1
-        """,
-        a=table_a_id, b=table_b_id, database_=settings.neo4j_database,
-    ).records
+    try:
+        records = driver().execute_query(
+            """
+            MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
+            MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES*1..24]-(tb))
+            RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes
+            ORDER BY length(p) LIMIT 1
+            """,
+            a=table_a_id, b=table_b_id, database_=settings.neo4j_database,
+        ).records
+    except Exception as exc:  # noqa: BLE001 — surface graph errors to the agent, don't crash the run
+        return json.dumps({"found": False, "tables": [], "joins": [], "error": str(exc)})
     if not records or not records[0]["nodes"]:
         return json.dumps({"found": False, "tables": [], "joins": []})
     nodes = records[0]["nodes"]
