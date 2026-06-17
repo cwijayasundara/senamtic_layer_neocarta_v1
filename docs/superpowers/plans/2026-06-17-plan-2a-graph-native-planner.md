@@ -179,8 +179,11 @@ def test_extract_intent_uses_planner_model_and_returns_intent(monkeypatch):
             captured["schema"] = schema
             return _FakeStructured()
 
-    monkeypatch.setattr(planner_mod, "get_chat_model",
-                        lambda model=None: captured.setdefault("model", model) or _FakeModel())
+    def _fake_get_chat_model(model=None):
+        captured["model"] = model
+        return _FakeModel()
+
+    monkeypatch.setattr(planner_mod, "get_chat_model", _fake_get_chat_model)
     out = extract_intent("which EMEA Blackwell things, per the press release?")
     assert out is canned
     assert captured["schema"] is Intent
