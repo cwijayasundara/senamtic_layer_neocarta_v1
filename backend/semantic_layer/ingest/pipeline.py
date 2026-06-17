@@ -16,6 +16,7 @@ from semantic_layer.ingest.api_extractor import extract_all_apis
 from semantic_layer.ingest.metadata_loader import load_bundle
 from semantic_layer.ingest.value_indexer import index_values
 from semantic_layer.ingest.period_indexer import index_periods
+from semantic_layer.ingest.bridge import bridge_sources
 from semantic_layer.ingest.doc_parser import parse_document
 from semantic_layer.ingest.doc_loader import load_document
 from semantic_layer.ingest.doc_graph import extract_period, link_document_period
@@ -50,6 +51,9 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
         # Turn fiscal_period rows into :Period nodes so documents can bridge to them
         # and SQL aggregations can be scoped to a document's reported quarter.
         counts["periods"] = index_periods(driver)
+        # Link API key columns (account_id) to their SQL counterpart (customer_id) so
+        # join-path planning can fold REST endpoints into cross-source queries.
+        counts["bridges"] = bridge_sources(driver)
 
         docs_dir = Path(settings.docs_dir)
         pdfs = sorted(docs_dir.glob("*.pdf"))

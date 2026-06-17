@@ -101,7 +101,7 @@ def get_table_schema(table_id: str) -> str:
 
 @tool
 def get_join_path(table_a_id: str, table_b_id: str) -> str:
-    """Find the shortest foreign-key join path between two tables (by id).
+    """Find the shortest join path between two tables (by id), across FK and cross-source bridges.
 
     Traverses REFERENCES edges in the graph and returns the ordered chain of
     tables plus the column pairs to JOIN on. Use this to build correct multi-table
@@ -117,7 +117,7 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
         records = driver().execute_query(
             """
             MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
-            MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES*1..24]-(tb))
+            MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES|SAME_ENTITY*1..24]-(tb))
             RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes
             ORDER BY length(p) LIMIT 1
             """,
