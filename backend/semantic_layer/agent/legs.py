@@ -105,3 +105,34 @@ def run_api_leg(api_intents: list[str]) -> dict:
         results.append({"source": c.source, "path": c.path, "params": c.params,
                         "status": resp.get("status"), "row_count": row_count, "data": body})
     return {"calls": results, "error": None}
+
+
+# --- Doc leg -----------------------------------------------------------------
+
+class _DocAnswer(BaseModel):
+    answer: str
+
+
+_DOC_LEG_PROMPT = (
+    "Answer the question ONLY from the provided document passages, quoting the most "
+    "relevant sentence and citing the document id. If nothing relevant is present, say so."
+)
+
+
+def run_doc_leg(doc_query: str) -> dict:
+    hits = json.loads(search_documents.invoke({"query": doc_query}))
+    citations, doc_texts, seen = [], [], set()
+    for h in hits:
+        cid = h.get("chunk_id")
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        text = h.get("text") or ""
+        doc_texts.append(text)
+        citations.append({"doc_id": h.get("doc_id"), "chunk_id": cid,
+                          "quote": text[:280], "score": h.get("score")})
+    passages = "\n\n".join(f"[{c['doc_id']}] {t}" for c, t in zip(citations, doc_texts))
+    model = get_chat_model(settings.llm_model).with_structured_output(_DocAnswer)
+    ans = model.invoke([("system", _DOC_LEG_PROMPT),
+                        ("human", f"Question: {doc_query}\n\nPassages:\n{passages}")])
+    return {"answer": ans.answer, "citations": citations, "doc_texts": doc_texts, "error": None}

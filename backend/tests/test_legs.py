@@ -69,3 +69,20 @@ def test_run_api_leg_executes_planned_calls(monkeypatch):
     assert out["calls"][0]["source"] == "itsm"
     assert out["calls"][0]["path"] == "/tickets"
     assert out["calls"][0]["row_count"] == 2
+
+
+from semantic_layer.agent.legs import run_doc_leg
+
+
+def test_run_doc_leg_retrieves_and_answers(monkeypatch):
+    monkeypatch.setattr(legs_mod, "search_documents", type("T", (), {
+        "invoke": staticmethod(lambda args: json.dumps([
+            {"chunk_id": "doc:x:chunk:2", "doc_id": "doc:x",
+             "text": "Data Center revenue was a record $60.4 billion.", "score": 0.9}]))})())
+    answer = legs_mod._DocAnswer(answer="Data Center revenue was $60.4 billion (doc:x).")
+    monkeypatch.setattr(legs_mod, "get_chat_model", lambda model=None: _FakeModel(answer))
+    out = run_doc_leg("what drove Data Center growth")
+    assert out["error"] is None
+    assert out["citations"][0]["doc_id"] == "doc:x"
+    assert "60.4" in out["answer"]
+    assert any("60.4" in t for t in out["doc_texts"])
