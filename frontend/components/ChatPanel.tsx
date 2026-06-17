@@ -3,12 +3,55 @@ import { useState } from "react";
 import type { AnswerEvent } from "@/lib/types";
 import { AnswerPanel } from "./AnswerPanel";
 
-const EXAMPLES = [
-  "Which business segment has the highest total revenue?",
-  "How many open support tickets are there?",
-  "According to the press releases, what drove Data Center growth?",
-  "In FY2025, which EMEA Cloud customers bought Blackwell Data Center products, and what was each customer's total revenue by quarter?",
-  "Compare the Data Center revenue we recorded for Blackwell products with what the NVIDIA press releases say drove Data Center growth.",
+type Level = "Simple" | "Moderate" | "Complex" | "Max";
+
+// Complexity ramps by how many source TYPES (and databases) a question must fuse.
+const LEVEL_STYLE: Record<Level, string> = {
+  Simple: "border-emerald-700 bg-emerald-950/50 text-emerald-300",
+  Moderate: "border-sky-700 bg-sky-950/50 text-sky-300",
+  Complex: "border-amber-700 bg-amber-950/50 text-amber-300",
+  Max: "border-fuchsia-600 bg-fuchsia-950/50 text-fuchsia-300",
+};
+
+function sourceClass(s: string): string {
+  if (s.startsWith("SQL")) return "border-blue-800 text-blue-300";
+  if (s.startsWith("API")) return "border-violet-800 text-violet-300";
+  return "border-green-800 text-green-300"; // Docs
+}
+
+const EXAMPLES: { q: string; level: Level; sources: string[] }[] = [
+  {
+    q: "Which business segment has the highest total revenue?",
+    level: "Simple",
+    sources: ["SQL"],
+  },
+  {
+    q: "How many open support tickets are there?",
+    level: "Simple",
+    sources: ["API"],
+  },
+  {
+    q: "According to the press releases, what drove Data Center growth?",
+    level: "Simple",
+    sources: ["Docs"],
+  },
+  {
+    q: "In FY2025, which EMEA Cloud customers bought Blackwell Data Center products, and what was each customer's total revenue by quarter?",
+    level: "Moderate",
+    sources: ["SQL"],
+  },
+  {
+    q: "Compare the Data Center revenue we recorded for Blackwell products with what the NVIDIA press releases say drove Data Center growth.",
+    level: "Complex",
+    sources: ["SQL", "Docs"],
+  },
+  {
+    // The showcase: needs TWO databases (sales_pg + financials), TWO APIs
+    // (DGX + ITSM), and the press-release documents — all fused in one answer.
+    q: "The full picture: for our top EMEA Cloud customers by Blackwell Data Center revenue (sales database), how much DGX Cloud GPU usage have they consumed and how many support tickets are open for them (DGX + ITSM APIs), and how does our company-wide quarterly revenue and gross margin (financials database) compare with the exact Data Center revenue figure NVIDIA quotes in its latest press release (search the documents and cite it)?",
+    level: "Max",
+    sources: ["SQL ×2", "API ×2", "Docs"],
+  },
 ];
 
 export function ChatPanel({
@@ -36,14 +79,33 @@ export function ChatPanel({
         )}
         {!answerEvent && !busy && (
           <div className="space-y-2">
-            <p className="text-sm text-gray-400">Try a question:</p>
+            <p className="text-sm text-gray-400">
+              Try a question — tagged by complexity and the sources it must fuse:
+            </p>
             {EXAMPLES.map((ex) => (
               <button
-                key={ex}
-                onClick={() => onAsk(ex)}
-                className="block w-full text-left text-sm rounded border border-gray-800 bg-gray-900 px-3 py-2 text-gray-300 hover:border-[#76b900]"
+                key={ex.q}
+                onClick={() => onAsk(ex.q)}
+                className={`block w-full text-left rounded border bg-gray-900 px-3 py-2 hover:border-[#76b900] ${
+                  ex.level === "Max" ? "border-fuchsia-700/60" : "border-gray-800"
+                }`}
               >
-                {ex}
+                <div className="mb-1 flex flex-wrap items-center gap-1">
+                  <span
+                    className={`rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide ${LEVEL_STYLE[ex.level]}`}
+                  >
+                    {ex.level}
+                  </span>
+                  {ex.sources.map((s) => (
+                    <span
+                      key={s}
+                      className={`rounded border bg-gray-950 px-1.5 py-0.5 text-[10px] ${sourceClass(s)}`}
+                    >
+                      {s}
+                    </span>
+                  ))}
+                </div>
+                <span className="text-sm text-gray-300">{ex.q}</span>
               </button>
             ))}
           </div>

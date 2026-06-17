@@ -19,6 +19,19 @@ def test_join_path_segment_to_region_is_deep(ingested_graph):
     assert all("on" in hop for hop in result["joins"])
 
 
+def test_join_path_same_table_is_trivial_without_db():
+    # Identical endpoints must NOT run shortestPath — Neo4j forbids a shortest-path
+    # search where start == end (it raises and previously crashed the whole agent run).
+    # A table joins to itself with zero hops; this returns before touching the graph.
+    result = json.loads(get_join_path.invoke({
+        "table_a_id": "table:sales_pg.sales.customer",
+        "table_b_id": "table:sales_pg.sales.customer",
+    }))
+    assert result["found"] is True
+    assert result["tables"] == ["table:sales_pg.sales.customer"]
+    assert result["joins"] == []
+
+
 @pytest.mark.neo4j
 def test_join_path_none_when_disconnected(ingested_graph):
     result = json.loads(get_join_path.invoke({

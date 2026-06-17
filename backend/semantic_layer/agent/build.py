@@ -121,5 +121,8 @@ def build_agent():
 
 def ask(question: str) -> str:
     agent = build_agent()
-    result = agent.invoke({"messages": [{"role": "user", "content": question}]})
+    result = agent.invoke(
+        {"messages": [{"role": "user", "content": question}]},
+        config={"recursion_limit": settings.agent_recursion_limit},
+    )
     return result["messages"][-1].content
