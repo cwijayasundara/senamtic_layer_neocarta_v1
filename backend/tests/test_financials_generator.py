@@ -4,7 +4,7 @@ from data.generators.financials import generate_financials
 def test_income_statement_one_row_per_fiscal_quarter():
     data = generate_financials(seed=42)
     keys = {(r["fiscal_year"], r["quarter"]) for r in data["income_statement"]}
-    assert len(keys) == len(data["income_statement"]) == 8
+    assert len(keys) == len(data["income_statement"]) == 13
 
 
 def test_net_income_not_above_revenue():

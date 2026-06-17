@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# NeoCarta-Local — one-shot platform setup.
+# NeoCarta-Local — provision infrastructure and data (part 1 of 2).
 #
 # Installs dependencies, starts the Dockerized data stores (Neo4j + Postgres),
-# seeds the databases, ingests the knowledge graph, and launches the backend
-# simulators (mock enterprise APIs) and the agent web API.
+# seeds the databases, and ingests the knowledge graph. It does NOT start the
+# backend app — run ./start-backend.sh for that.
 #
 # Usage:  ./setup.sh
-# Then:   ./start-ui.sh   (to launch the web UI)
+# Then:   ./start-backend.sh   (start the mock APIs + agent web API)
+#         ./start-ui.sh        (start the web UI)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,9 +15,6 @@ cd "$ROOT"
 BACKEND="$ROOT/backend"
 VENV="$BACKEND/.venv"
 PY="$VENV/bin/python"
-UVICORN="$VENV/bin/uvicorn"
-LOGDIR="$ROOT/logs"
-mkdir -p "$LOGDIR"
 
 say()  { printf "\n\033[1;32m==>\033[0m %s\n" "$*"; }
 warn() { printf "\033[1;33mWARNING:\033[0m %s\n" "$*"; }
@@ -58,7 +56,19 @@ printf " ready\n"
 # --- 4. Python venv + dependencies -----------------------------------------
 if [ ! -x "$PY" ]; then say "Creating virtualenv at backend/.venv"; python3 -m venv "$VENV"; fi
 say "Installing backend dependencies"
-( cd "$BACKEND" && "$PY" -m pip install --quiet --upgrade pip && "$PY" -m pip install --quiet -e ".[dev]" )
+if command -v uv >/dev/null 2>&1; then
+  # uv is fast and installs into the venv without needing pip inside it.
+  ( cd "$BACKEND" && uv pip install --quiet --python "$PY" -e ".[dev]" )
+else
+  # Some venvs (created with --without-pip, or populated by uv) have no pip.
+  # Bootstrap it with the stdlib ensurepip before installing.
+  if ! "$PY" -m pip --version >/dev/null 2>&1; then
+    say "Bootstrapping pip into the virtualenv"
+    "$PY" -m ensurepip --upgrade >/dev/null 2>&1 \
+      || die "pip is missing from $VENV and could not be bootstrapped. Recreate it with: rm -rf '$VENV' && python3 -m venv '$VENV', or install uv (https://docs.astral.sh/uv/)."
+  fi
+  ( cd "$BACKEND" && "$PY" -m pip install --quiet --upgrade pip && "$PY" -m pip install --quiet -e ".[dev]" )
+fi
 
 # --- 5. seed the databases --------------------------------------------------
 say "Seeding databases (Postgres sales schema + SQLite financials/org)"
@@ -73,24 +83,10 @@ else
   ( cd "$BACKEND" && "$PY" -c "from semantic_layer.ingest.pipeline import run_ingest; print(run_ingest(with_llm=False, reset=True))" )
 fi
 
-# --- 7. launch backend services --------------------------------------------
-start_service() {  # name  module:app  port
-  local name="$1" target="$2" port="$3"
-  if lsof -ti tcp:"$port" >/dev/null 2>&1; then
-    warn "$name: port $port already in use — leaving the existing process."
-    return
-  fi
-  ( cd "$BACKEND" && nohup "$UVICORN" "$target" --port "$port" > "$LOGDIR/$name.log" 2>&1 & echo $! > "$LOGDIR/$name.pid" )
-  say "Started $name on :$port  (logs/$name.log)"
-}
-start_service "mock-apis" "semantic_layer.apis.app:app" 8001
-start_service "web-api"   "semantic_layer.web.app:app"  8000
-
-sleep 2
-say "Platform is up:"
+# --- 7. done ----------------------------------------------------------------
+say "Setup complete — infrastructure and data are ready:"
 printf "  • Neo4j browser:   http://localhost:7474   (neo4j / neocarta123)\n"
 printf "  • Postgres:        localhost:5432           (neocarta / neocarta / nvidia)\n"
-printf "  • Mock APIs:       http://localhost:8001/docs\n"
-printf "  • Agent web API:   http://localhost:8000     (GET /graph, GET /sources, POST /chat)\n"
-printf "\nNext:  \033[1m./start-ui.sh\033[0m   →  http://localhost:3005\n"
+printf "\nNext:  \033[1m./start-backend.sh\033[0m   (start the mock APIs + agent web API)\n"
+printf "       \033[1m./start-ui.sh\033[0m        (start the web UI →  http://localhost:3005)\n"
 printf "Stop:  kill \$(cat logs/*.pid) 2>/dev/null; docker compose down\n"

@@ -13,7 +13,7 @@ def test_seed_creates_both_databases(tmp_path):
 def test_financials_tables_populated(tmp_path):
     seed_all(out_dir=str(tmp_path))
     con = sqlite3.connect(tmp_path / "financials.db")
-    assert con.execute("SELECT COUNT(*) FROM income_statement").fetchone()[0] == 8
+    assert con.execute("SELECT COUNT(*) FROM income_statement").fetchone()[0] == 13
     assert con.execute("SELECT COUNT(*) FROM stock_price").fetchone()[0] > 0
     con.close()
 

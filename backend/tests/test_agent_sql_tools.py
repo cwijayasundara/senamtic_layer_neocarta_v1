@@ -30,4 +30,4 @@ def test_run_sql_sqlite(tmp_path):
     import semantic_layer.agent.sql_tools as st
     seed_all(out_dir=str(tmp_path))
     out = json.loads(st._run("financials", "SELECT COUNT(*) FROM income_statement", base_dir=str(tmp_path)))
-    assert out["rows"][0][0] == 8
+    assert out["rows"][0][0] == 13

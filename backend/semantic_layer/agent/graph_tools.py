@@ -1,13 +1,18 @@
 """Graph-backed semantic tools: source catalog, schema lookup, join paths, search."""
 
 import json
+import re
 
 from langchain_core.tools import tool
 
 from semantic_layer.agent.driver import driver
+from semantic_layer.agent.sql_tools import _run, _SQLITE_SOURCES
 from semantic_layer.config import settings
 
 _SQL_PLATFORMS = {"POSTGRESQL", "SQLITE"}
+# Catalog-derived SQL identifiers (column name, schema-qualified table) must look
+# like plain identifiers before they are ever interpolated into a query string.
+_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 
 
 def _sql_reference(table_id: str) -> str:
@@ -35,6 +40,32 @@ def list_sources() -> str:
             "platform": platform,
             "kind": "sql" if platform in _SQL_PLATFORMS else "api",
         })
+    return json.dumps(out)
+
+
+@tool
+def list_tables(source: str) -> str:
+    """List every table in a source (e.g. 'sales_pg') with its table id and schema.
+
+    Use this whenever a source is relevant but search_catalog did not surface all
+    the tables you need. Question filters like 'EMEA', 'Cloud', 'Data Center', or
+    'Blackwell' are ROW VALUES that live in lookup/dimension tables
+    (region, industry, segment, architecture) — their table names never appear in
+    the question, so keyword search misses them. Enumerate the source here, then use
+    get_join_path to connect the dimension tables into the join. Returns a JSON array
+    of {table_id, name, schema, source} ordered by name."""
+    records = driver().execute_query(
+        """
+        MATCH (d:Database {name: $source})-[:HAS_SCHEMA]->(s:Schema)-[:HAS_TABLE]->(t:Table)
+        RETURN t.id AS id, t.name AS name, s.name AS schema
+        ORDER BY name
+        """,
+        source=source, database_=settings.neo4j_database,
+    ).records
+    out = [
+        {"table_id": r["id"], "name": r["name"], "schema": r["schema"], "source": source}
+        for r in records
+    ]
     return json.dumps(out)
 
 
@@ -98,6 +129,108 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
 
 
 @tool
+def resolve_value(value: str) -> str:
+    """Find which SQL table/column a filter VALUE lives in, and its exact stored spelling.
+
+    The catalog stores metadata, not rows, so you cannot tell from names alone that
+    'Cloud' is an industry, 'Data Center' a segment, 'Blackwell' an architecture, or
+    'EMEA' a region — and the stored string is often longer than the question's
+    shorthand ('Cloud' -> 'Cloud Service Provider'). This samples the live 'name'
+    columns of the SQL sources (case-insensitive substring match) and returns where the
+    value lives. Call it once per filter term BEFORE planning a join, then filter on the
+    returned table/column using the exact matched string. Returns a JSON array of
+    {source, table_id, sql_reference, column, matches[]}."""
+    name_cols = driver().execute_query(
+        """
+        MATCH (d:Database)-[:HAS_SCHEMA]->(:Schema)-[:HAS_TABLE]->(t:Table)-[:HAS_COLUMN]->(c:Column)
+        WHERE toLower(c.name) = 'name' AND toUpper(coalesce(d.platform,'')) IN ['POSTGRESQL','SQLITE']
+        RETURN d.name AS source, t.id AS table_id, c.name AS col
+        ORDER BY table_id
+        """,
+        database_=settings.neo4j_database,
+    ).records
+    # The user value is bound as a parameter (never interpolated); identifiers come
+    # from the trusted catalog but are still validated as a defense-in-depth measure.
+    pattern = "%" + value.lower().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    out = []
+    for r in name_cols:
+        ref = _sql_reference(r["table_id"])
+        col = r["col"]
+        if not (_IDENT.match(col) and _IDENT.match(ref)):
+            continue
+        placeholder = "?" if r["source"] in _SQLITE_SOURCES else "%s"
+        sql = (f"SELECT DISTINCT {col} AS v FROM {ref} "
+               f"WHERE lower({col}) LIKE {placeholder} ESCAPE '\\' LIMIT 5")
+        res = json.loads(_run(r["source"], sql, params=(pattern,)))
+        rows = res.get("rows") or []
+        if rows:
+            out.append({
+                "source": r["source"], "table_id": r["table_id"],
+                "sql_reference": ref, "column": col,
+                "matches": [row[0] for row in rows],
+            })
+    return json.dumps(out)
+
+
+@tool
+def neighbors(name: str) -> str:
+    """Show the cross-source neighborhood of a value or entity (e.g. 'Blackwell').
+
+    Bridges structured data and documents: returns which SQL tables/columns CONTAIN
+    this value, and which documents/chunks MENTION it. Use it to connect the two
+    worlds — e.g. confirm that an architecture the press releases discuss is the same
+    one you have sales rows for, then quantify it with the sql subagent. Returns JSON
+    {name, catalog:[{table_id, column, value}], documents:[{doc_id, chunks}]}."""
+    key = " ".join((name or "").lower().split())
+    catalog = driver().execute_query(
+        """
+        MATCH (c:Column)-[:HAS_VALUE]->(v:Value {norm: $key})
+        MATCH (t:Table)-[:HAS_COLUMN]->(c)
+        RETURN DISTINCT t.id AS table_id, c.name AS column, v.name AS value
+        ORDER BY table_id
+        """,
+        key=key, database_=settings.neo4j_database,
+    ).records
+    # Documents mention it via a bridged entity (Entity->Value) or a direct name match.
+    documents = driver().execute_query(
+        """
+        MATCH (ch:Chunk)-[:MENTIONS]->(e:Entity)
+        WHERE e.norm = $key OR (e)-[:REFERS_TO]->(:Value {norm: $key})
+        RETURN ch.doc_id AS doc_id, count(DISTINCT ch) AS chunks
+        ORDER BY chunks DESC
+        """,
+        key=key, database_=settings.neo4j_database,
+    ).records
+    return json.dumps({
+        "name": name,
+        "catalog": [dict(r) for r in catalog],
+        "documents": [dict(r) for r in documents],
+    })
+
+
+@tool
+def periods_for_documents(doc_ids: list[str]) -> str:
+    """Return the fiscal period(s) the given documents report, to scope a SQL aggregation.
+
+    When an answer combines press releases with sales data, the documents describe a
+    specific fiscal quarter while order_line facts are all-time. Call this with the
+    resolved doc ids to get each document's period, then tell the sql subagent to filter
+    on it. Returns a JSON list of {doc_id, key, fiscal_year, quarter, sql_available};
+    sql_available=true means matching sales rows exist and the period can be filtered."""
+    records = driver().execute_query(
+        """
+        MATCH (d:Document)-[:COVERS_PERIOD]->(p:Period)
+        WHERE d.id IN $ids
+        RETURN d.id AS doc_id, p.key AS key, p.fiscal_year AS fiscal_year,
+               p.quarter AS quarter, p.fiscal_period_id IS NOT NULL AS sql_available
+        ORDER BY doc_id, key
+        """,
+        ids=doc_ids, database_=settings.neo4j_database,
+    ).records
+    return json.dumps([dict(r) for r in records])
+
+
+@tool
 def search_catalog(query: str, limit: int = 20) -> str:
     """Search the catalog for tables, columns, and business terms matching a query.
 
@@ -138,5 +271,22 @@ def search_catalog(query: str, limit: int = 20) -> str:
         """,
         terms=terms, limit=limit, database_=settings.neo4j_database,
     ).records
-    hits = [dict(r) for r in (list(column_hits) + list(table_hits) + list(term_hits))]
+    # Value hits route data-value filters ('EMEA', 'Blackwell', 'Data Center') to the
+    # table/column that holds them, with the exact stored spelling — what keyword
+    # matching over names alone cannot do.
+    value_hits = driver().execute_query(
+        """
+        UNWIND $terms AS term
+        MATCH (c:Column)-[:HAS_VALUE]->(v:Value)
+        WHERE toLower(v.name) CONTAINS term
+        MATCH (t:Table)-[:HAS_COLUMN]->(c)
+        WITH c, t, v, count(*) AS score
+        RETURN 'value' AS kind, c.id AS id, v.name AS name,
+               t.id AS table_id, c.name AS column, score
+        ORDER BY score DESC LIMIT $limit
+        """,
+        terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
+    hits = [dict(r) for r in (list(column_hits) + list(table_hits)
+                              + list(value_hits) + list(term_hits))]
     return json.dumps(hits[:limit])

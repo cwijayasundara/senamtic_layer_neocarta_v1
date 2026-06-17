@@ -20,7 +20,12 @@ def get_sources() -> list[dict]:
 
 
 def get_schema_graph() -> dict:
-    """Source + table + document nodes; HAS_TABLE + table-level REFERENCES edges."""
+    """Renderable graph for the UI.
+
+    Structured layer: source + table nodes; HAS_TABLE + table-level REFERENCES edges.
+    Document layer: document -> chunk -> entity, the entity -> value bridge, and the
+    value -> owning table link (HAS_VALUE) that ties the documents back into the
+    structured catalog — so a PDF renders as a connected context graph, not a blob."""
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
 
@@ -64,5 +69,58 @@ def get_schema_graph() -> dict:
     for r in doc_rows:
         nodes[r["id"]] = {"id": r["id"], "label": r["title"], "kind": "document",
                           "source": "documents"}
+
+    # Document -> Chunk: the actual PDF content, split into passages.
+    chunk_rows = driver().execute_query(
+        """
+        MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
+        RETURN c.id AS id, c.ordinal AS ordinal, c.text AS text, d.id AS doc_id
+        ORDER BY d.id, c.ordinal
+        """,
+        database_=settings.neo4j_database,
+    ).records
+    for r in chunk_rows:
+        nodes[r["id"]] = {"id": r["id"], "label": f"¶{r['ordinal']}", "kind": "chunk",
+                          "source": "documents", "text": (r["text"] or "")[:280]}
+        edges.append({"source": r["doc_id"], "target": r["id"], "type": "HAS_CHUNK"})
+
+    # Chunk -> Entity: the entities extracted from each passage. We surface only
+    # entities that carry structure — mentioned by 2+ passages OR bridged to the
+    # catalog — so the document graph reads as a constellation, not a hairball of
+    # hundreds of one-off mentions. Chunks still attach to their document regardless.
+    ent_rows = driver().execute_query(
+        """
+        MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
+        WITH e, collect(DISTINCT c.id) AS chunk_ids
+        WHERE size(chunk_ids) >= 2 OR exists((e)-[:REFERS_TO]->(:Value))
+        UNWIND chunk_ids AS chunk_id
+        RETURN chunk_id, e.norm AS norm, e.name AS name, e.label AS label
+        """,
+        database_=settings.neo4j_database,
+    ).records
+    for r in ent_rows:
+        eid = f"entity:{r['norm']}"
+        nodes.setdefault(eid, {"id": eid, "label": r["name"], "kind": "entity",
+                               "source": "documents", "entityType": r["label"]})
+        edges.append({"source": r["chunk_id"], "target": eid, "type": "MENTIONS"})
+
+    # Entity -> Value bridge, and Value -> owning Table, linking docs to the catalog.
+    bridge_rows = driver().execute_query(
+        """
+        MATCH (e:Entity)-[:REFERS_TO]->(v:Value)
+        OPTIONAL MATCH (t:Table)-[:HAS_COLUMN]->(:Column)-[:HAS_VALUE]->(v)
+        RETURN e.norm AS enorm, v.norm AS vnorm, v.name AS vname,
+               collect(DISTINCT t.id) AS tables
+        """,
+        database_=settings.neo4j_database,
+    ).records
+    for r in bridge_rows:
+        vid = f"value:{r['vnorm']}"
+        nodes.setdefault(vid, {"id": vid, "label": r["vname"], "kind": "value",
+                               "source": "catalog"})
+        edges.append({"source": f"entity:{r['enorm']}", "target": vid, "type": "REFERS_TO"})
+        for tid in r["tables"]:
+            if tid in nodes:  # tie the bridge into the existing table graph
+                edges.append({"source": vid, "target": tid, "type": "HAS_VALUE"})
 
     return {"nodes": list(nodes.values()), "edges": edges}
