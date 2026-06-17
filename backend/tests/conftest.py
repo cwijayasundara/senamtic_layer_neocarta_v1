@@ -58,6 +58,9 @@ def ingested_graph(neo4j_driver, postgres_dsn):
     from semantic_layer.ingest.pipeline import run_ingest
     with neo4j_driver.session(database=settings.neo4j_database) as session:
         tables = session.run("MATCH (t:Table) RETURN count(t) AS c").single()["c"]
-    if tables < 11:
+        values = session.run("MATCH (v:Value) RETURN count(v) AS c").single()["c"]
+    # Rebuild when the metadata layer OR the value layer is absent (the latter is
+    # written by index_values, which runs even in the no-LLM ingest path).
+    if tables < 11 or values == 0:
         run_ingest(with_llm=False, reset=True)
     return neo4j_driver

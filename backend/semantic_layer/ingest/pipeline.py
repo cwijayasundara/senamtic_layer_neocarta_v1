@@ -14,8 +14,11 @@ from semantic_layer.apis.app import app
 from semantic_layer.ingest.sql_extractor import extract_postgres, extract_sqlite
 from semantic_layer.ingest.api_extractor import extract_all_apis
 from semantic_layer.ingest.metadata_loader import load_bundle
+from semantic_layer.ingest.value_indexer import index_values
+from semantic_layer.ingest.period_indexer import index_periods
 from semantic_layer.ingest.doc_parser import parse_document
 from semantic_layer.ingest.doc_loader import load_document
+from semantic_layer.ingest.doc_graph import extract_period, link_document_period
 
 
 def _api_spec_getter():
@@ -41,11 +44,20 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
             load_bundle(driver, b)
         counts["sources"] = len(bundles)
 
+        # Index dimension row-values as :Value nodes (pure SQL, always runs) so the
+        # graph can route value-filtered questions and documents can bridge to them.
+        counts["values"] = index_values(driver)
+        # Turn fiscal_period rows into :Period nodes so documents can bridge to them
+        # and SQL aggregations can be scoped to a document's reported quarter.
+        counts["periods"] = index_periods(driver)
+
         docs_dir = Path(settings.docs_dir)
         pdfs = sorted(docs_dir.glob("*.pdf"))
         for pdf in pdfs:
             doc = parse_document(str(pdf))
             load_document(driver, doc)
+            # Deterministic period extraction (regex) — runs without the LLM.
+            link_document_period(driver, doc["doc_id"], extract_period(doc))
         counts["documents"] = len(pdfs)
 
         if with_llm:
@@ -58,6 +70,7 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
 def _run_llm_stages(driver, bundles) -> None:
     from semantic_layer.ingest.entities import extract_entities
     from semantic_layer.ingest.glossary import generate_business_terms, load_business_terms
+    from semantic_layer.ingest.doc_graph import load_entities, bridge_entities_to_values
     from semantic_layer.ingest.embeddings import embed_chunks, embed_metadata_nodes
 
     columns = [
@@ -69,20 +82,12 @@ def _run_llm_stages(driver, bundles) -> None:
 
     with driver.session(database=settings.neo4j_database) as session:
         chunk_rows = session.run(
-            "MATCH (c:Chunk) RETURN c.id AS id, c.text AS text ORDER BY c.id LIMIT 40"
+            "MATCH (c:Chunk) RETURN c.id AS id, c.text AS text ORDER BY c.id"
         ).data()
     for row in chunk_rows:
-        for ent in extract_entities(row["text"]):
-            with driver.session(database=settings.neo4j_database) as session:
-                session.run(
-                    """
-                    MERGE (e:Entity {name: $name}) SET e.label = $label
-                    WITH e
-                    MATCH (c:Chunk {id: $chunk_id})
-                    MERGE (c)-[:MENTIONS]->(e)
-                    """,
-                    name=ent["name"], label=ent["label"], chunk_id=row["id"],
-                )
+        load_entities(driver, row["id"], extract_entities(row["text"]))
+    # Bridge document entities to the canonical value layer (Entity -> Value).
+    bridge_entities_to_values(driver)
 
     embed_chunks(driver)
     embed_metadata_nodes(driver)

@@ -9,7 +9,24 @@ def test_dimensions_have_expected_counts():
     assert len(d["segments"]) == 5
     assert len(d["architectures"]) == 5
     assert len(d["product_lines"]) == 10
-    assert len(d["fiscal_periods"]) == 8
+    assert len(d["fiscal_periods"]) == 13
+
+
+def test_fiscal_periods_cover_document_quarters():
+    """Press releases report Q1 FY2026 and Q1 FY2027 — both must exist in the seed
+    so SQL can be auto-scoped to the period a document describes."""
+    d = build_dimensions()
+    pairs = {(fp["fiscal_year"], fp["quarter"]) for fp in d["fiscal_periods"]}
+    assert (2026, "Q1") in pairs
+    assert (2027, "Q1") in pairs
+
+
+def test_fiscal_periods_are_contiguous_and_ordered():
+    d = build_dimensions()
+    fps = d["fiscal_periods"]
+    # each period starts the day after the previous one ends
+    for prev, nxt in zip(fps, fps[1:]):
+        assert nxt["start_date"] > prev["end_date"]
 
 
 def test_every_country_points_to_a_valid_region():

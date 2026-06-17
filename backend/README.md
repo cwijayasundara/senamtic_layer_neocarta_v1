@@ -102,7 +102,19 @@ make ask q="Which business segment has the highest total revenue?"
 make ask q="How many open support tickets are there?"
 make ask q="According to the press releases, what drove Data Center growth?"
 make ask q="List EMEA Cloud customers and their open support tickets."   # cross-source
+make ask q="In FY2025, which EMEA Cloud customers bought Blackwell Data Center products, and what was each customer's total revenue by quarter?"   # 11-table deep join
+make ask q="Compare the Data Center revenue we recorded for Blackwell products with what the NVIDIA press releases say drove Data Center growth."   # SQL + document RAG
 ```
+
+The 11-table question forces the orchestrator to traverse the full `sales`
+schema via `get_join_path`: `region`(EMEA) → `country` → `customer` →
+`industry`(Cloud), joined to `segment`(Data Center) ← `product_line` →
+`architecture`(Blackwell), then `product` → `order_line`(revenue) ←
+`sales_order` → `fiscal_period`(FY2025, quarter). The comparison question fans
+out to **two** subagents at once — the **sql** subagent runs the Data
+Center/Blackwell revenue join while the **doc** subagent vector-searches the
+NVIDIA press-release PDFs — and the orchestrator reconciles the recorded
+numbers against the documents' growth narrative in a single provenance-tagged answer.
 
 The sql subagent is **grounded**: the orchestrator hands it the resolved tables,
 their `sql_reference`, and the `get_join_path` chain before it writes SQL — so a

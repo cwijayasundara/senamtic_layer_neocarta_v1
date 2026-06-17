@@ -14,21 +14,22 @@ _READONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 _SQLITE_SOURCES = {"financials", "org"}
 
 
-def _run(source: str, sql: str, base_dir: str | None = None) -> str:
+def _run(source: str, sql: str, base_dir: str | None = None,
+         params: tuple | None = None) -> str:
     if not _READONLY.match(sql or ""):
         return json.dumps({"error": "only read-only SELECT/WITH queries are allowed"})
     limit = settings.agent_max_rows
     try:
         if source == "sales_pg":
             with psycopg.connect(settings.postgres_dsn) as conn, conn.cursor() as cur:
-                cur.execute(sql)
+                cur.execute(sql) if params is None else cur.execute(sql, params)
                 cols = [d.name for d in cur.description]
                 rows = cur.fetchmany(limit)
         elif source in _SQLITE_SOURCES:
             path = Path(base_dir or settings.sqlite_dir) / f"{source}.db"
             con = sqlite3.connect(path)
             try:
-                cur = con.execute(sql)
+                cur = con.execute(sql) if params is None else con.execute(sql, params)
                 cols = [d[0] for d in cur.description]
                 rows = cur.fetchmany(limit)
             finally:
