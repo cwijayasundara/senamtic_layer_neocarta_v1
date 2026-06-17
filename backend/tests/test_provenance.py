@@ -49,6 +49,19 @@ def test_dedupes_doc_citations_by_chunk():
     assert cites[0]["quote"] == "hello"
 
 
+def test_grounding_uses_full_chunk_not_truncated_quote():
+    # The cited number lives past char 280 of the chunk; the display quote is
+    # truncated, but grounding must check the FULL chunk text and not flag it.
+    prov = _Provenance()
+    long_chunk = "x" * 400 + " Data Center compute revenue was a record $60.4 billion"
+    prov.record("search_documents", {"query": "dc"},
+                json.dumps([{"chunk_id": "doc:a:chunk:2", "doc_id": "doc:a",
+                             "text": long_chunk, "score": 0.9}]))
+    fields = prov.answer_fields("Data Center compute revenue was $60.4b.")
+    assert fields["caveats"] == []
+    assert len(fields["doc_citations"][0]["quote"]) <= 280
+
+
 def test_answer_fields_runs_grounding():
     prov = _Provenance()
     prov.record("run_sql", {"source": "sales_pg", "sql": "SELECT 1"},

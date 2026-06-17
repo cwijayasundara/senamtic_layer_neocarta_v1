@@ -53,14 +53,14 @@ def _cell_numbers(cell: Any) -> set[float]:
     return set()
 
 
-def _grounded_set(sql_runs: list, api_calls: list, doc_citations: list) -> set[float]:
+def _grounded_set(sql_runs: list, api_calls: list, doc_texts: list) -> set[float]:
     grounded: set[float] = set()
     for run in sql_runs:
         for row in run.get("rows", []) or []:
             for cell in row:
                 grounded |= _cell_numbers(cell)
     blob = json.dumps([c.get("data") for c in api_calls], default=str)
-    blob += " " + " ".join(c.get("quote", "") for c in doc_citations)
+    blob += " " + " ".join(doc_texts)   # full retrieved chunk text, not truncated quotes
     grounded |= _numbers_in_text(blob)
     return grounded
 
@@ -83,9 +83,13 @@ def _is_noise(value: float, suffix: str) -> bool:
 
 
 def check_numeric_grounding(content: str, sql_runs: list, api_calls: list,
-                            doc_citations: list) -> list[str]:
-    """Return one advisory caveat per summary number not found in any result."""
-    grounded = _grounded_set(sql_runs, api_calls, doc_citations)
+                            doc_texts: list) -> list[str]:
+    """Return one advisory caveat per summary number not found in any result.
+
+    doc_texts are the FULL retrieved document chunks the model read (not the
+    truncated display quotes), so a figure cited from deep in a chunk still grounds.
+    """
+    grounded = _grounded_set(sql_runs, api_calls, doc_texts)
     caveats: list[str] = []
     seen: set[str] = set()
     for raw, suffix in _NUM.findall(content or ""):

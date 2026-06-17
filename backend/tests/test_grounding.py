@@ -34,10 +34,18 @@ def test_years_and_small_counts_are_noise():
     assert caveats == []
 
 
-def test_grounded_by_api_data_or_doc_quote():
+def test_grounded_by_api_data_or_doc_text():
+    # The fourth argument is the FULL retrieved document text (what the model read),
+    # not a display object — passed as a list of strings.
     api = [{"source": "itsm", "path": "/tickets", "params": {}, "status": 200,
             "row_count": 1, "data": [{"open": 8}]}]
-    docs = [{"doc_id": "doc:x", "chunk_id": "doc:x:chunk:1",
-             "quote": "Revenue $81,615M", "score": 0.9}]
+    docs = ["Revenue $81,615M"]
     assert check_numeric_grounding("There are 8 open tickets.", [], api, []) == []
     assert check_numeric_grounding("Revenue was $81,615M.", [], [], docs) == []
+
+
+def test_doc_number_beyond_display_truncation_is_grounded():
+    # Real-world regression: the cited figure sits deep in a long chunk (past the
+    # 280-char display-quote cutoff). Grounding must still see it via the full text.
+    long_text = "x" * 400 + " Data Center compute revenue was a record $60.4 billion"
+    assert check_numeric_grounding("DC compute was $60.4b.", [], [], [long_text]) == []

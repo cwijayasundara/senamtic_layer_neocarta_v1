@@ -34,6 +34,7 @@ class _Provenance:
         self.sql_runs: list[dict] = []
         self.api_calls: list[dict] = []
         self.doc_citations: list[dict] = []
+        self._doc_texts: list[str] = []   # full chunk text for grounding (not truncated)
         self._seen_chunks: set[str] = set()
 
     def record(self, name: str, args: dict, content: str) -> None:
@@ -70,9 +71,11 @@ class _Provenance:
                 if not cid or cid in self._seen_chunks:
                     continue
                 self._seen_chunks.add(cid)
+                text = hit.get("text") or ""
+                self._doc_texts.append(text)
                 self.doc_citations.append({
                     "doc_id": hit.get("doc_id"), "chunk_id": cid,
-                    "quote": (hit.get("text") or "")[:280], "score": hit.get("score"),
+                    "quote": text[:280], "score": hit.get("score"),
                 })
 
     def answer_fields(self, content: str) -> dict:
@@ -81,7 +84,7 @@ class _Provenance:
             "api_calls": self.api_calls,
             "doc_citations": self.doc_citations,
             "caveats": check_numeric_grounding(
-                content, self.sql_runs, self.api_calls, self.doc_citations),
+                content, self.sql_runs, self.api_calls, self._doc_texts),
         }
 
 
