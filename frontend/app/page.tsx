@@ -11,7 +11,7 @@ import type { GraphData, GraphNode } from "@/lib/types";
 export default function Home() {
   const [graph, setGraph] = useState<GraphData>({ nodes: [], edges: [] });
   const [selected, setSelected] = useState<GraphNode | null>(null);
-  const { events, answer, highlight, busy, ask, reset } = useChatStream();
+  const { events, answerEvent, highlight, busy, ask, reset } = useChatStream();
 
   useEffect(() => {
     fetchGraph()
@@ -26,7 +26,7 @@ export default function Home() {
           NeoCarta-Local <span className="text-[#76b900]">semantic layer</span>
         </header>
         <div className="flex-1 min-h-0">
-          <ChatPanel answer={answer} busy={busy} onAsk={ask} onReset={reset} />
+          <ChatPanel answerEvent={answerEvent} busy={busy} onAsk={ask} onReset={reset} />
         </div>
         <div className="h-48 border-t border-gray-800">
           <TracePanel events={events} />
