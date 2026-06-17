@@ -79,6 +79,39 @@ def _join_targets(fact: str, table_ids: list[str]) -> list[dict]:
     return out
 
 
+_DOC_CYPHER = """
+UNWIND $norms AS n
+MATCH (e:Entity)-[:REFERS_TO]->(:Value {norm: n})
+MATCH (ch:Chunk)-[:MENTIONS]->(e), (d:Document)-[:HAS_CHUNK]->(ch)
+OPTIONAL MATCH (d)-[:COVERS_PERIOD]->(p:Period)
+RETURN DISTINCT d.id AS doc_id, collect(DISTINCT p.key) AS periods
+"""
+
+_API_CORR_CYPHER = """
+MATCH (api:Column)-[:SAME_ENTITY]->(sql:Column)
+RETURN sql.id AS sql_column, api.id AS api_column ORDER BY api_column
+"""
+
+
+def _context_docs(terms: list[str]) -> dict | None:
+    norms = [norm(t) for t in terms]
+    recs = driver().execute_query(
+        _DOC_CYPHER, norms=norms, database_=settings.neo4j_database,
+    ).records
+    doc_ids = [r["doc_id"] for r in recs]
+    periods = sorted({p for r in recs for p in r["periods"] if p})
+    if not doc_ids:
+        return None
+    return {"candidate_doc_ids": doc_ids, "periods": periods}
+
+
+def _api_correlations() -> list[dict]:
+    recs = driver().execute_query(
+        _API_CORR_CYPHER, database_=settings.neo4j_database,
+    ).records
+    return [{"sql_column": r["sql_column"], "api_column": r["api_column"]} for r in recs]
+
+
 def build_plan(intent: "Intent") -> dict:
     """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
@@ -94,4 +127,24 @@ def build_plan(intent: "Intent") -> dict:
                         for r in sales_dims],
         })
 
-    return {"resolved_values": resolved, "sql_legs": sql_legs}
+    doc_leg = None
+    if intent.needs_doc:
+        ctx = _context_docs(intent.terms)
+        if ctx is not None:
+            doc_leg = {"doc_query": intent.doc_query, **ctx}
+
+    api_correlations = _api_correlations() if intent.needs_api else []
+
+    highlight = sorted({
+        *(r["table_id"] for r in resolved),
+        *(t for leg in sql_legs for jt in leg["join_targets"] for t in jt["tables"]),
+        *(doc_leg["candidate_doc_ids"] if doc_leg else []),
+    })
+
+    return {
+        "resolved_values": resolved,
+        "sql_legs": sql_legs,
+        "doc_leg": doc_leg,
+        "api_correlations": api_correlations,
+        "highlight": highlight,
+    }

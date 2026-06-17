@@ -25,3 +25,26 @@ def test_build_plan_resolves_values_and_join_targets(ingested_graph):
     # Filters carry the EXACT stored spelling for the SQL leg to apply.
     filt = {f["column"]: f["value"] for f in sales["filters"]}
     assert filt.get("name") is not None
+
+
+@pytest.mark.neo4j
+def test_build_plan_adds_doc_context_api_keys_and_highlight(ingested_graph):
+    intent = Intent(terms=["Blackwell", "Data Center"], fact="revenue",
+                    needs_sql=True, needs_doc=True, needs_api=True,
+                    doc_query="what drove Data Center growth",
+                    api_intents=["dgx usage", "open tickets"])
+    plan = build_plan(intent)
+
+    # Documents that mention the entities are surfaced as candidates.
+    assert plan["doc_leg"] is not None
+    assert "doc:NVIDIAAn_2026" in plan["doc_leg"]["candidate_doc_ids"]
+    assert plan["doc_leg"]["doc_query"] == "what drove Data Center growth"
+
+    # API correlation keys come straight from the SAME_ENTITY bridge.
+    pairs = {(k["sql_column"], k["api_column"]) for k in plan["api_correlations"]}
+    assert ("col:sales_pg.sales.customer.customer_id",
+            "col:itsm.api.GET /tickets.account_id") in pairs
+
+    # Highlight is the union of plan node ids for the UI graph.
+    assert "table:sales_pg.sales.segment" in plan["highlight"]
+    assert "doc:NVIDIAAn_2026" in plan["highlight"]
