@@ -7,10 +7,15 @@ This replaces the orchestrator's ~20 LLM discovery round-trips with a single int
 read plus a few set-based graph queries.
 """
 
+import json
+
 from pydantic import BaseModel, Field
 
+from semantic_layer.agent.driver import driver
+from semantic_layer.agent.graph_tools import get_join_path
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_chat_model
+from semantic_layer.ingest.value_indexer import norm
 
 _INTENT_PROMPT = (
     "You read a business question over an NVIDIA enterprise semantic layer that unifies "
@@ -43,3 +48,50 @@ def extract_intent(question: str) -> Intent:
     """One structured LLM call (planner_model) -> Intent."""
     model = get_chat_model(settings.planner_model_resolved).with_structured_output(Intent)
     return model.invoke([("system", _INTENT_PROMPT), ("human", question)])
+
+
+_SALES_FACT = "table:sales_pg.sales.order_line"
+
+_RESOLVE_CYPHER = """
+UNWIND $rows AS row
+MATCH (db:Database)-[:HAS_SCHEMA]->(:Schema)-[:HAS_TABLE]->(t:Table)
+     -[:HAS_COLUMN]->(c:Column)-[:HAS_VALUE]->(v:Value)
+WHERE v.norm = row.norm OR v.norm CONTAINS row.norm
+RETURN row.term AS term, db.name AS source, t.id AS table_id,
+       c.name AS column, v.name AS exact
+"""
+
+
+def _resolve_values(terms: list[str]) -> list[dict]:
+    rows = [{"term": t, "norm": norm(t)} for t in terms]
+    recs = driver().execute_query(
+        _RESOLVE_CYPHER, rows=rows, database_=settings.neo4j_database,
+    ).records
+    return [dict(r) for r in recs]
+
+
+def _join_targets(fact: str, table_ids: list[str]) -> list[dict]:
+    out = []
+    for tid in dict.fromkeys(table_ids):  # de-dupe, preserve order
+        path = json.loads(get_join_path.invoke({"table_a_id": fact, "table_b_id": tid}))
+        if path.get("found"):
+            out.append({"table_id": tid, "tables": path["tables"], "joins": path["joins"]})
+    return out
+
+
+def build_plan(intent: "Intent") -> dict:
+    """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
+    resolved = _resolve_values(intent.terms)
+
+    sql_legs = []
+    sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
+    if sales_dims:
+        sql_legs.append({
+            "source": "sales_pg",
+            "fact_table": _SALES_FACT,
+            "join_targets": _join_targets(_SALES_FACT, [r["table_id"] for r in sales_dims]),
+            "filters": [{"table_id": r["table_id"], "column": r["column"], "value": r["exact"]}
+                        for r in sales_dims],
+        })
+
+    return {"resolved_values": resolved, "sql_legs": sql_legs}
