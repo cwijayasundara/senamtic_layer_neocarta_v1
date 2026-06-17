@@ -89,6 +89,8 @@ def stream_chat_events(question: str) -> Iterator[dict]:
     """Yield UI events: {type: tool_call|tool_result|answer, ...}."""
     agent = build_agent()
     highlight: set[str] = set()
+    prov = _Provenance()
+    pending: dict[str, dict] = {}   # tool_call_id -> args, to pair with its result
     final = ""
     for ns, chunk in agent.stream(
         {"messages": [{"role": "user", "content": question}]},
@@ -99,15 +101,20 @@ def stream_chat_events(question: str) -> Iterator[dict]:
             messages = update.get("messages", []) if isinstance(update, dict) else []
             for m in messages:
                 for call in getattr(m, "tool_calls", None) or []:
+                    if call.get("id"):
+                        pending[call["id"]] = call.get("args", {})
                     yield {"type": "tool_call", "scope": scope,
                            "name": call.get("name"), "args": call.get("args", {})}
                 if type(m).__name__ == "ToolMessage":
                     name = getattr(m, "name", "")
                     content = str(getattr(m, "content", ""))
+                    args = pending.get(getattr(m, "tool_call_id", None), {})
                     _collect_highlight(name, content, highlight)
+                    prov.record(name, args, content)
                     yield {"type": "tool_result", "scope": scope,
                            "name": name, "content": content[:4000]}
                 elif type(m).__name__ == "AIMessage" and getattr(m, "content", None) \
                         and not getattr(m, "tool_calls", None):
                     final = m.content
-    yield {"type": "answer", "content": final, "highlight": sorted(highlight)}
+    yield {"type": "answer", "content": final, "highlight": sorted(highlight),
+           **prov.answer_fields(final)}
