@@ -48,3 +48,17 @@ def test_build_plan_adds_doc_context_api_keys_and_highlight(ingested_graph):
     # Highlight is the union of plan node ids for the UI graph.
     assert "table:sales_pg.sales.segment" in plan["highlight"]
     assert "doc:NVIDIAAn_2026" in plan["highlight"]
+
+
+@pytest.mark.neo4j
+def test_build_plan_adds_financials_leg_and_scope(ingested_graph):
+    intent = Intent(terms=["Blackwell"], needs_sql=True,
+                    financial_metrics=["revenue", "gross margin"],
+                    fiscal_year=2027, quarter="Q1")
+    plan = build_plan(intent)
+    fin = next((leg for leg in plan["sql_legs"] if leg["source"] == "financials"), None)
+    assert fin is not None
+    assert fin["fact_table"] == "table:financials.main.income_statement"
+    assert fin["join_targets"] == [] and fin["filters"] == []
+    assert fin["scope"] == {"fiscal_year": 2027, "quarter": "Q1"}
+    assert all("scope" in leg for leg in plan["sql_legs"])
