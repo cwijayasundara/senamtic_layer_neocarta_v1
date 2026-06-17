@@ -116,6 +116,15 @@ def _api_correlations() -> list[dict]:
     return [{"sql_column": r["sql_column"], "api_column": r["api_column"]} for r in recs]
 
 
+def _table_columns(table_id: str) -> list[str]:
+    """Actual column names of a table, so the SQL leg uses real names (not guesses)."""
+    recs = driver().execute_query(
+        "MATCH (t:Table {id:$id})-[:HAS_COLUMN]->(c:Column) RETURN c.name AS name ORDER BY name",
+        id=table_id, database_=settings.neo4j_database,
+    ).records
+    return [r["name"] for r in recs]
+
+
 def build_plan(intent: "Intent") -> dict:
     """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
@@ -139,6 +148,8 @@ def build_plan(intent: "Intent") -> dict:
             "join_targets": [], "filters": [], "scope": scope,
             "metrics": intent.financial_metrics,
         })
+    for leg in sql_legs:  # real column names so the leg writes valid SQL, not guesses
+        leg["columns"] = _table_columns(leg["fact_table"])
 
     doc_leg = None
     if intent.needs_doc:

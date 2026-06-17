@@ -40,6 +40,8 @@ def _col(cid: str) -> str:
 def _sql_brief(leg: dict) -> str:
     lines = [f"Source: {leg['source']}",
              f"Fact table: {_sql_reference(leg['fact_table'])}"]
+    if leg.get("columns"):
+        lines.append(f"Fact table columns: {', '.join(leg['columns'])}")
     for jt in leg.get("join_targets", []):
         pairs = ", ".join(f"{_col(j['on'][0])} = {_col(j['on'][1])}" for j in jt["joins"])
         lines.append(f"Join {_sql_reference(jt['table_id'])} ON {pairs}")
@@ -101,7 +103,8 @@ def run_api_leg(api_intents: list[str]) -> dict:
                          ("human", "Lookups: " + "; ".join(api_intents))])
     results = []
     for c in plan.calls:
-        resp = json.loads(call_api(c.source, c.path, c.params))
+        resp = json.loads(call_api.invoke(
+            {"source": c.source, "path": c.path, "params": c.params}))
         body = resp.get("data")
         row_count = len(body) if isinstance(body, list) else (1 if body else 0)
         results.append({"source": c.source, "path": c.path, "params": c.params,

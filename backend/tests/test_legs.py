@@ -61,9 +61,10 @@ def test_run_api_leg_executes_planned_calls(monkeypatch):
     plan_calls = legs_mod._ApiCalls(calls=[
         legs_mod._ApiCall(source="itsm", path="/tickets", params={"status": "open"})])
     monkeypatch.setattr(legs_mod, "get_chat_model", lambda model=None: _FakeModel(plan_calls))
-    monkeypatch.setattr(legs_mod, "call_api",
-                        lambda source, path, params=None: json.dumps(
-                            {"status": 200, "data": [{"id": 1}, {"id": 2}]}))
+    # call_api is a LangChain tool: the leg invokes it via .invoke({...}).
+    monkeypatch.setattr(legs_mod, "call_api", type("T", (), {
+        "invoke": staticmethod(lambda _args: json.dumps(
+            {"status": 200, "data": [{"id": 1}, {"id": 2}]}))})())
     out = run_api_leg(["open tickets"])
     assert out["error"] is None
     assert out["calls"][0]["source"] == "itsm"
