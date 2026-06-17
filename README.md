@@ -59,24 +59,36 @@ edges, which the SQL subagent then executes.
 # 1. add your OpenAI key (used by the agent + document embeddings)
 echo "OPENAI_API_KEY=sk-..." >> backend/.env      # backend/.env may be a symlink to ./.env
 
-# 2. set up the platform: Docker data stores, deps, seed, ingest, backend services
+# 2. provision infrastructure + data: Docker data stores, deps, seed, ingest
 ./setup.sh
 
-# 3. start the web UI
+# 3. start the backend app: mock enterprise APIs (:8001) + agent web API (:8000)
+./start-backend.sh            # foreground — streams logs; Ctrl-C stops both servers
+# or:  ./start-backend.sh -d  # detached — returns to the prompt
+
+# 4. start the web UI (in a second terminal, since step 3 runs in the foreground)
 ./start-ui.sh        # http://localhost:3005  (pass a port: ./start-ui.sh 3010)
 ```
 
-`setup.sh` is idempotent — it starts Neo4j + Postgres, installs the Python venv, seeds
-the databases, ingests the knowledge graph, and launches the **mock enterprise APIs**
-(`:8001`) and the **agent web API** (`:8000`). `start-ui.sh` runs the Next.js UI (`:3000`).
+The flow is split in two: `setup.sh` is idempotent and provisions the platform — it
+starts Neo4j + Postgres, installs the Python venv (via `uv` or `pip`), seeds the
+databases, and ingests the knowledge graph. `start-backend.sh` then launches the
+**mock enterprise APIs** (`:8001`) and the **agent web API** (`:8000`); `start-ui.sh`
+runs the Next.js UI.
 
 **Try these in the UI** (it animates the agent's graph traversal for each):
 
 - *Which business segment has the highest total revenue?* — deep multi-table SQL
 - *How many open support tickets are there?* — the ITSM mock API
 - *According to the press releases, what drove Data Center growth?* — document RAG
+- *In FY2025, which EMEA Cloud customers bought Blackwell Data Center products, and what was each customer's total revenue by quarter?* — an **11-table** join discovered via `get_join_path` (region→country→customer→industry, segment←product_line→architecture, product→order_line←sales_order→fiscal_period)
+- *Compare the Data Center revenue we recorded for Blackwell products with what the NVIDIA press releases say drove Data Center growth.* — **structured + unstructured in one answer**: the sql subagent runs the revenue join while the doc subagent does vector RAG over the PDFs, and the orchestrator reconciles both with provenance
 
-Stop everything: `kill $(cat logs/*.pid) 2>/dev/null; docker compose down`.
+`start-backend.sh` runs in the **foreground** and streams both API logs; press **Ctrl-C** to
+stop both servers. To run it detached instead, use `./start-backend.sh -d` and tail the logs
+with `tail -f logs/web-api.log logs/mock-apis.log`.
+
+Stop everything: Ctrl-C the backend (or `kill $(cat logs/*.pid) 2>/dev/null` if detached), then `docker compose down`.
 
 ---
 
@@ -86,8 +98,8 @@ Stop everything: `kill $(cat logs/*.pid) 2>/dev/null; docker compose down`.
 |---|---|---|
 | Neo4j (graph) | `localhost:7687`, browser `:7474` | Docker (`setup.sh`) |
 | Postgres (sales) | `localhost:5432` | Docker (`setup.sh`) |
-| Mock enterprise APIs | `http://localhost:8001/docs` | `setup.sh` |
-| Agent web API (SSE) | `http://localhost:8000` | `setup.sh` |
+| Mock enterprise APIs | `http://localhost:8001/docs` | `start-backend.sh` |
+| Agent web API (SSE) | `http://localhost:8000` | `start-backend.sh` |
 | Web UI | `http://localhost:3005` | `start-ui.sh` |
 
 ---

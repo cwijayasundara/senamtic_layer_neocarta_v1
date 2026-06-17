@@ -1,9 +1,11 @@
 export type GraphNode = {
   id: string;
   label: string;
-  kind: "source" | "table" | "document";
+  kind: "source" | "table" | "document" | "chunk" | "entity" | "value";
   source: string;
   platform?: string;
+  text?: string; // chunk passage preview
+  entityType?: string; // POLE+O label for entity nodes
 };
 export type GraphEdge = { source: string; target: string; type: string };
 export type GraphData = { nodes: GraphNode[]; edges: GraphEdge[] };

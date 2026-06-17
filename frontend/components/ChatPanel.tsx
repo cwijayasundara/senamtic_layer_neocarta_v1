@@ -5,21 +5,33 @@ const EXAMPLES = [
   "Which business segment has the highest total revenue?",
   "How many open support tickets are there?",
   "According to the press releases, what drove Data Center growth?",
+  "In FY2025, which EMEA Cloud customers bought Blackwell Data Center products, and what was each customer's total revenue by quarter?",
+  "Compare the Data Center revenue we recorded for Blackwell products with what the NVIDIA press releases say drove Data Center growth.",
 ];
 
 export function ChatPanel({
   answer,
   busy,
   onAsk,
+  onReset,
 }: {
   answer: string;
   busy: boolean;
   onAsk: (q: string) => void;
+  onReset: () => void;
 }) {
   const [q, setQ] = useState("");
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4 space-y-3">
+        {answer && !busy && (
+          <button
+            onClick={onReset}
+            className="text-sm text-gray-400 hover:text-[#76b900]"
+          >
+            ← Back to questions
+          </button>
+        )}
         {!answer && !busy && (
           <div className="space-y-2">
             <p className="text-sm text-gray-400">Try a question:</p>

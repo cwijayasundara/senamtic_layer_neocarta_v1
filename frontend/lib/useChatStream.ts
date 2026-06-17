@@ -9,6 +9,19 @@ export function useChatStream() {
   const [highlight, setHighlight] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
+  const reset = useCallback(() => {
+    // Return to a fresh start: drop the answer, the trace, and the lit graph
+    // nodes so the example-question list reappears. No-op mid-stream.
+    setBusy((b) => {
+      if (!b) {
+        setEvents([]);
+        setAnswer("");
+        setHighlight([]);
+      }
+      return b;
+    });
+  }, []);
+
   const ask = useCallback(async (question: string) => {
     setEvents([]);
     setAnswer("");
@@ -46,5 +59,5 @@ export function useChatStream() {
     }
   }, []);
 
-  return { events, answer, highlight, busy, ask };
+  return { events, answer, highlight, busy, ask, reset };
 }
