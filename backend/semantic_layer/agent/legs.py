@@ -11,6 +11,8 @@ from pydantic import BaseModel
 
 from semantic_layer.agent.graph_tools import _sql_reference
 from semantic_layer.agent.sql_tools import _run
+from semantic_layer.agent.api_tools import call_api
+from semantic_layer.agent.doc_tools import search_documents
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.config import settings
 
@@ -69,3 +71,37 @@ def run_sql_leg(leg: dict) -> dict:
     rows = out.get("rows", [])
     return {"source": leg["source"], "sql": sql, "columns": out.get("columns", []),
             "rows": rows, "row_count": len(rows), "error": None}
+
+
+# --- API leg -----------------------------------------------------------------
+
+class _ApiCall(BaseModel):
+    source: str
+    path: str
+    params: dict = {}
+
+
+class _ApiCalls(BaseModel):
+    calls: list[_ApiCall] = []
+
+
+_API_LEG_PROMPT = (
+    "Pick the mock-API calls that answer the given lookups. Sources & endpoints: "
+    "crm (/accounts,/contacts,/opportunities), itsm (/tickets,/rma), "
+    "partner (/partners,/inventory), dgx (/usage). Use query params to filter "
+    "(e.g. {'status':'open'} for open tickets). Return the list of calls to make."
+)
+
+
+def run_api_leg(api_intents: list[str]) -> dict:
+    model = get_chat_model(settings.llm_model).with_structured_output(_ApiCalls)
+    plan = model.invoke([("system", _API_LEG_PROMPT),
+                         ("human", "Lookups: " + "; ".join(api_intents))])
+    results = []
+    for c in plan.calls:
+        resp = json.loads(call_api(c.source, c.path, c.params))
+        body = resp.get("data")
+        row_count = len(body) if isinstance(body, list) else (1 if body else 0)
+        results.append({"source": c.source, "path": c.path, "params": c.params,
+                        "status": resp.get("status"), "row_count": row_count, "data": body})
+    return {"calls": results, "error": None}
