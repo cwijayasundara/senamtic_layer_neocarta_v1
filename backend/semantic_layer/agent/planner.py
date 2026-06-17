@@ -28,6 +28,9 @@ _INTENT_PROMPT = (
     "- needs_sql / needs_api / needs_doc: which source TYPES the question requires.\n"
     "- doc_query: what to look up in the documents, or null.\n"
     "- api_intents: enterprise-system lookups implied (e.g. ['dgx usage','open tickets'])."
+    "\n- financial_metrics: company-wide financial measures asked for "
+    "(e.g. ['revenue','gross margin','net income']); empty unless the question asks "
+    "about overall company financials."
 )
 
 
@@ -42,6 +45,7 @@ class Intent(BaseModel):
     needs_doc: bool = False
     doc_query: str | None = None
     api_intents: list[str] = Field(default_factory=list)
+    financial_metrics: list[str] = Field(default_factory=list)
 
 
 def extract_intent(question: str) -> Intent:
@@ -112,10 +116,20 @@ def _api_correlations() -> list[dict]:
     return [{"sql_column": r["sql_column"], "api_column": r["api_column"]} for r in recs]
 
 
+def _table_columns(table_id: str) -> list[str]:
+    """Actual column names of a table, so the SQL leg uses real names (not guesses)."""
+    recs = driver().execute_query(
+        "MATCH (t:Table {id:$id})-[:HAS_COLUMN]->(c:Column) RETURN c.name AS name ORDER BY name",
+        id=table_id, database_=settings.neo4j_database,
+    ).records
+    return [r["name"] for r in recs]
+
+
 def build_plan(intent: "Intent") -> dict:
     """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
 
+    scope = {"fiscal_year": intent.fiscal_year, "quarter": intent.quarter}
     sql_legs = []
     sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
     if sales_dims:
@@ -125,7 +139,17 @@ def build_plan(intent: "Intent") -> dict:
             "join_targets": _join_targets(_SALES_FACT, [r["table_id"] for r in sales_dims]),
             "filters": [{"table_id": r["table_id"], "column": r["column"], "value": r["exact"]}
                         for r in sales_dims],
+            "scope": scope,
         })
+    if intent.financial_metrics:
+        sql_legs.append({
+            "source": "financials",
+            "fact_table": "table:financials.main.income_statement",
+            "join_targets": [], "filters": [], "scope": scope,
+            "metrics": intent.financial_metrics,
+        })
+    for leg in sql_legs:  # real column names so the leg writes valid SQL, not guesses
+        leg["columns"] = _table_columns(leg["fact_table"])
 
     doc_leg = None
     if intent.needs_doc:
