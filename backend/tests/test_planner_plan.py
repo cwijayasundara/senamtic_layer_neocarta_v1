@@ -62,3 +62,16 @@ def test_build_plan_adds_financials_leg_and_scope(ingested_graph):
     assert fin["join_targets"] == [] and fin["filters"] == []
     assert fin["scope"] == {"fiscal_year": 2027, "quarter": "Q1"}
     assert all("scope" in leg for leg in plan["sql_legs"])
+
+
+@pytest.mark.neo4j
+def test_build_plan_aggregation_leg_from_group_by(ingested_graph):
+    # A bare aggregation (no filter value) still produces a sales leg via group_by.
+    intent = Intent(terms=[], needs_sql=True, fact="revenue", group_by=["segment"])
+    plan = build_plan(intent)
+    sales = next((l for l in plan["sql_legs"] if l["source"] == "sales_pg"), None)
+    assert sales is not None
+    targets = {jt["table_id"] for jt in sales["join_targets"]}
+    assert "table:sales_pg.sales.segment" in targets
+    assert sales["group_by"] == ["segment"]
+    assert sales["filters"] == []

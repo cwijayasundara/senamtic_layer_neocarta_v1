@@ -125,6 +125,30 @@ def _table_columns(table_id: str) -> list[str]:
     return [r["name"] for r in recs]
 
 
+_TIME_TOKENS = {"quarter", "fiscal_year", "fiscal_period", "period", "year", "time"}
+
+
+def _dimension_targets(group_by: list[str]) -> list[str]:
+    """Map group-by tokens (e.g. 'segment','customer','quarter') to sales dimension tables."""
+    out = []
+    for g in group_by:
+        key = norm(g)
+        if key in _TIME_TOKENS:
+            out.append("table:sales_pg.sales.fiscal_period")
+            continue
+        # Lenient: 'business segment' should match the 'segment' table; prefer the
+        # longest table-name match so 'product line' beats 'product'.
+        recs = driver().execute_query(
+            "MATCH (t:Table) WHERE t.id STARTS WITH 'table:sales_pg.sales.' "
+            "AND (toLower(t.name) = $n OR $n CONTAINS toLower(t.name)) "
+            "RETURN t.id AS id ORDER BY size(t.name) DESC LIMIT 1",
+            n=key, database_=settings.neo4j_database,
+        ).records
+        if recs:
+            out.append(recs[0]["id"])
+    return list(dict.fromkeys(out))
+
+
 def build_plan(intent: "Intent") -> dict:
     """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
@@ -132,13 +156,17 @@ def build_plan(intent: "Intent") -> dict:
     scope = {"fiscal_year": intent.fiscal_year, "quarter": intent.quarter}
     sql_legs = []
     sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
-    if sales_dims:
+    dim_targets = _dimension_targets(intent.group_by) if intent.needs_sql else []
+    # A sales leg is warranted by either filter values OR group-by dimensions (aggregation).
+    sales_target_ids = [r["table_id"] for r in sales_dims] + dim_targets
+    if sales_target_ids:
         sql_legs.append({
             "source": "sales_pg",
             "fact_table": _SALES_FACT,
-            "join_targets": _join_targets(_SALES_FACT, [r["table_id"] for r in sales_dims]),
+            "join_targets": _join_targets(_SALES_FACT, sales_target_ids),
             "filters": [{"table_id": r["table_id"], "column": r["column"], "value": r["exact"]}
                         for r in sales_dims],
+            "group_by": list(intent.group_by) if dim_targets else [],
             "scope": scope,
         })
     if intent.financial_metrics:

@@ -52,6 +52,11 @@ def _sql_brief(leg: dict) -> str:
         lines.append(f"Scope: fiscal_year={scope['fiscal_year']} quarter={scope.get('quarter')}")
     if leg.get("metrics"):
         lines.append(f"Select these measures: {', '.join(leg['metrics'])}")
+    if leg.get("group_by"):
+        lines.append(
+            f"Aggregation: GROUP BY {', '.join(leg['group_by'])} (use each dimension's name "
+            "column), compute the measure the question asks for (e.g. SUM(order_line.amount) "
+            "for revenue), ORDER BY that measure DESC, and LIMIT to a sensible number of rows.")
     return "\n".join(lines)
 
 
