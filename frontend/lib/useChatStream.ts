@@ -1,13 +1,14 @@
 "use client";
 import { useCallback, useState } from "react";
 import { API_BASE } from "./api";
-import type { ChatEvent } from "./types";
+import type { ChatEvent, AnswerEvent } from "./types";
 
 export function useChatStream() {
   const [events, setEvents] = useState<ChatEvent[]>([]);
   const [answer, setAnswer] = useState<string>("");
   const [highlight, setHighlight] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [answerEvent, setAnswerEvent] = useState<AnswerEvent | null>(null);
 
   const reset = useCallback(() => {
     // Return to a fresh start: drop the answer, the trace, and the lit graph
@@ -17,6 +18,7 @@ export function useChatStream() {
         setEvents([]);
         setAnswer("");
         setHighlight([]);
+        setAnswerEvent(null);
       }
       return b;
     });
@@ -26,6 +28,7 @@ export function useChatStream() {
     setEvents([]);
     setAnswer("");
     setHighlight([]);
+    setAnswerEvent(null);
     setBusy(true);
     try {
       const resp = await fetch(`${API_BASE}/chat`, {
@@ -51,6 +54,7 @@ export function useChatStream() {
           if (evt.type === "answer") {
             setAnswer(evt.content);
             setHighlight(evt.highlight);
+            setAnswerEvent(evt);
           }
         }
       }
@@ -59,5 +63,5 @@ export function useChatStream() {
     }
   }, []);
 
-  return { events, answer, highlight, busy, ask, reset };
+  return { events, answer, answerEvent, highlight, busy, ask, reset };
 }

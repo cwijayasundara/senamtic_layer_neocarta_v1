@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import type { AnswerEvent } from "@/lib/types";
+import { AnswerPanel } from "./AnswerPanel";
 
 const EXAMPLES = [
   "Which business segment has the highest total revenue?",
@@ -10,12 +12,12 @@ const EXAMPLES = [
 ];
 
 export function ChatPanel({
-  answer,
+  answerEvent,
   busy,
   onAsk,
   onReset,
 }: {
-  answer: string;
+  answerEvent: AnswerEvent | null;
   busy: boolean;
   onAsk: (q: string) => void;
   onReset: () => void;
@@ -24,7 +26,7 @@ export function ChatPanel({
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-auto p-4 space-y-3">
-        {answer && !busy && (
+        {answerEvent && !busy && (
           <button
             onClick={onReset}
             className="text-sm text-gray-400 hover:text-[#76b900]"
@@ -32,7 +34,7 @@ export function ChatPanel({
             ← Back to questions
           </button>
         )}
-        {!answer && !busy && (
+        {!answerEvent && !busy && (
           <div className="space-y-2">
             <p className="text-sm text-gray-400">Try a question:</p>
             {EXAMPLES.map((ex) => (
@@ -46,9 +48,7 @@ export function ChatPanel({
             ))}
           </div>
         )}
-        {answer && (
-          <div className="rounded-lg bg-gray-800 p-3 text-gray-100 whitespace-pre-wrap">{answer}</div>
-        )}
+        {answerEvent && <AnswerPanel answer={answerEvent} />}
         {busy && <div className="text-sm text-gray-400 animate-pulse">thinking…</div>}
       </div>
       <form

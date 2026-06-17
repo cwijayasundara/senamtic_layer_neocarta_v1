@@ -4,6 +4,7 @@ import json
 from typing import Iterator
 
 from semantic_layer.agent.build import build_agent
+from semantic_layer.web.grounding import check_numeric_grounding
 
 
 def _collect_highlight(tool_name: str, content: str, highlight: set[str]) -> None:
@@ -26,10 +27,73 @@ def _collect_highlight(tool_name: str, content: str, highlight: set[str]) -> Non
                 highlight.add(hit["doc_id"])
 
 
+class _Provenance:
+    """Accumulate structured SQL/API/doc provenance from paired tool results."""
+
+    def __init__(self) -> None:
+        self.sql_runs: list[dict] = []
+        self.api_calls: list[dict] = []
+        self.doc_citations: list[dict] = []
+        self._doc_texts: list[str] = []   # full chunk text for grounding (not truncated)
+        self._seen_chunks: set[str] = set()
+
+    def record(self, name: str, args: dict, content: str) -> None:
+        try:
+            data = json.loads(content)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if name == "run_sql":
+            entry = {"source": args.get("source"), "sql": args.get("sql", "")}
+            if isinstance(data, dict) and "error" in data:
+                entry.update(columns=[], rows=[], row_count=0, error=data["error"])
+            elif isinstance(data, dict):
+                rows = data.get("rows", []) or []
+                entry.update(columns=data.get("columns", []), rows=rows,
+                             row_count=len(rows), error=None)
+            else:
+                return
+            self.sql_runs.append(entry)
+        elif name == "call_api":
+            if not isinstance(data, dict):
+                return
+            body = data.get("data")
+            row_count = len(body) if isinstance(body, list) else (1 if body else 0)
+            self.api_calls.append({
+                "source": args.get("source"), "path": args.get("path"),
+                "params": args.get("params") or {}, "status": data.get("status"),
+                "row_count": row_count, "data": body,
+            })
+        elif name == "search_documents":
+            if not isinstance(data, list):
+                return
+            for hit in data:
+                cid = hit.get("chunk_id")
+                if not cid or cid in self._seen_chunks:
+                    continue
+                self._seen_chunks.add(cid)
+                text = hit.get("text") or ""
+                self._doc_texts.append(text)
+                self.doc_citations.append({
+                    "doc_id": hit.get("doc_id"), "chunk_id": cid,
+                    "quote": text[:280], "score": hit.get("score"),
+                })
+
+    def answer_fields(self, content: str) -> dict:
+        return {
+            "sql_runs": self.sql_runs,
+            "api_calls": self.api_calls,
+            "doc_citations": self.doc_citations,
+            "caveats": check_numeric_grounding(
+                content, self.sql_runs, self.api_calls, self._doc_texts),
+        }
+
+
 def stream_chat_events(question: str) -> Iterator[dict]:
     """Yield UI events: {type: tool_call|tool_result|answer, ...}."""
     agent = build_agent()
     highlight: set[str] = set()
+    prov = _Provenance()
+    pending: dict[str, dict] = {}   # tool_call_id -> args, to pair with its result
     final = ""
     for ns, chunk in agent.stream(
         {"messages": [{"role": "user", "content": question}]},
@@ -40,15 +104,20 @@ def stream_chat_events(question: str) -> Iterator[dict]:
             messages = update.get("messages", []) if isinstance(update, dict) else []
             for m in messages:
                 for call in getattr(m, "tool_calls", None) or []:
+                    if call.get("id"):
+                        pending[call["id"]] = call.get("args", {})
                     yield {"type": "tool_call", "scope": scope,
                            "name": call.get("name"), "args": call.get("args", {})}
                 if type(m).__name__ == "ToolMessage":
                     name = getattr(m, "name", "")
                     content = str(getattr(m, "content", ""))
+                    args = pending.get(getattr(m, "tool_call_id", None), {})
                     _collect_highlight(name, content, highlight)
+                    prov.record(name, args, content)
                     yield {"type": "tool_result", "scope": scope,
                            "name": name, "content": content[:4000]}
                 elif type(m).__name__ == "AIMessage" and getattr(m, "content", None) \
                         and not getattr(m, "tool_calls", None):
                     final = m.content
-    yield {"type": "answer", "content": final, "highlight": sorted(highlight)}
+    yield {"type": "answer", "content": final, "highlight": sorted(highlight),
+           **prov.answer_fields(final)}
