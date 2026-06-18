@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     cache_similarity_threshold: float = 0.95
 
+    # Postgres connection pool (replaces per-call psycopg.connect in sql_tools).
+    pg_pool_min_size: int = 1
+    pg_pool_max_size: int = 8
+
     @property
     def postgres_dsn(self) -> str:
         return (
