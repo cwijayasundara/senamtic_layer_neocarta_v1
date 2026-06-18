@@ -6,7 +6,7 @@ from semantic_layer.config import settings
 
 _DOC_CYPHER = """
 MERGE (d:Document {id: $doc_id})
-SET d.title = $title, d.path = $path, d.num_pages = $num_pages
+SET d.title = $title, d.path = $path, d.num_pages = $num_pages, d.file_hash = $file_hash
 WITH d
 UNWIND $chunks AS ch
 MERGE (c:Chunk {id: ch.chunk_id})
@@ -20,5 +20,5 @@ def load_document(driver: Driver, doc: dict) -> None:
         session.run(
             _DOC_CYPHER,
             doc_id=doc["doc_id"], title=doc["title"], path=doc["path"],
-            num_pages=doc["num_pages"], chunks=doc["chunks"],
+            num_pages=doc["num_pages"], file_hash=doc.get("file_hash"), chunks=doc["chunks"],
         )

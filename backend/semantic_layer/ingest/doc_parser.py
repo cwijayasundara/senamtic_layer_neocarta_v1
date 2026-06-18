@@ -1,8 +1,14 @@
 """Parse PDFs with liteparse v2 and split into overlapping chunks."""
 
+import hashlib
 from pathlib import Path
 
 from liteparse import LiteParse
+
+
+def file_content_hash(path: str) -> str:
+    """sha256 hex of a file's bytes — identity key for incremental ingestion."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def chunk_text(text: str, size: int = 1200, overlap: int = 150) -> list[str]:
@@ -31,5 +37,6 @@ def parse_document(path: str, size: int = 1200, overlap: int = 150) -> dict:
         "title": Path(path).stem,
         "path": str(path),
         "num_pages": result.num_pages,
+        "file_hash": file_content_hash(path),
         "chunks": chunks,
     }
