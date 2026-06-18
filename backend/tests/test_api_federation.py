@@ -1,6 +1,8 @@
 # backend/tests/test_api_federation.py
 import json
 
+import pytest
+
 from semantic_layer.config import settings
 from semantic_layer.agent import api_tools
 
@@ -15,3 +17,41 @@ def test_call_api_validates_against_config(monkeypatch):
     out = json.loads(api_tools.call_api.invoke({"source": "nope", "path": "/x"}))
     assert out["status"] == 404
     assert "unknown api source" in out["error"]
+
+
+@pytest.mark.neo4j
+def test_route_api_endpoints_finds_ticket_endpoint(ingested_graph):
+    from semantic_layer.agent import routing
+    eps = routing.route_api_endpoints(["open tickets"])
+    # ITSM's /tickets endpoint should surface for a ticket-related intent.
+    assert any(e["source"] == "itsm" and e["path"] == "/tickets" for e in eps)
+    for e in eps:
+        assert set(e) >= {"source", "path", "summary"}
+
+
+def test_run_api_leg_uses_routed_endpoints(monkeypatch):
+    from semantic_layer.agent import legs as legs_mod
+    monkeypatch.setattr(legs_mod, "route_api_endpoints",
+                        lambda intents, limit=12: [{"source": "itsm", "path": "/tickets",
+                                                    "summary": "List support tickets"}])
+    plan_calls = legs_mod._ApiCalls(calls=[
+        legs_mod._ApiCall(source="itsm", path="/tickets", params={"status": "open"})])
+    captured = {}
+
+    class _FakeStructured:
+        def invoke(self, messages):
+            captured["human"] = messages[-1][1]
+            return plan_calls
+
+    class _FakeModel:
+        def with_structured_output(self, _schema, **_kw):
+            return _FakeStructured()
+
+    monkeypatch.setattr(legs_mod, "get_chat_model", lambda model=None: _FakeModel())
+    monkeypatch.setattr(legs_mod, "call_api", type("T", (), {
+        "invoke": staticmethod(lambda _a: json.dumps({"status": 200, "data": [{"id": 1}]}))})())
+    out = legs_mod.run_api_leg(["open tickets"])
+    assert out["error"] is None
+    assert out["calls"][0]["path"] == "/tickets"
+    # the routed endpoint was injected into the prompt the model saw
+    assert "/tickets" in captured["human"]

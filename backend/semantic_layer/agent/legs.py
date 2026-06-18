@@ -13,6 +13,7 @@ from semantic_layer.agent.graph_tools import _sql_reference
 from semantic_layer.agent.sql_tools import _run
 from semantic_layer.agent.api_tools import call_api
 from semantic_layer.agent.doc_tools import search_documents
+from semantic_layer.agent.routing import route_api_endpoints
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.config import settings
 
@@ -122,8 +123,12 @@ def run_api_leg(api_intents: list[str]) -> dict:
     # function_calling tolerates the open `params` dict; strict structured output rejects it.
     model = get_chat_model(settings.llm_model).with_structured_output(
         _ApiCalls, method="function_calling")
-    plan = model.invoke([("system", _API_LEG_PROMPT),
-                         ("human", "Lookups: " + "; ".join(api_intents))])
+    routed = route_api_endpoints(api_intents)
+    catalog = "\n".join(f"- {e['source']} {e['path']} — {e['summary']}" for e in routed) \
+        or "(no matching endpoints found; use your general knowledge of the sources)"
+    plan = model.invoke([
+        ("system", _API_LEG_PROMPT),
+        ("human", f"Lookups: {'; '.join(api_intents)}\n\nRelevant endpoints:\n{catalog}")])
     results = []
     for c in plan.calls:
         c.params = _normalize_params(c.params)

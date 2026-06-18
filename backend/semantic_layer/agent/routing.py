@@ -86,6 +86,35 @@ RETURN tid ORDER BY fks DESC, depth2 DESC, tid LIMIT 1
 """
 
 
+_API_EP_CYPHER = """
+UNWIND $tokens AS tok
+MATCH (d:Database)-[:HAS_SCHEMA]->(:Schema)-[:HAS_TABLE]->(t:Table)
+WHERE toUpper(coalesce(d.platform,'')) = 'REST-API'
+  AND (toLower(t.name) CONTAINS tok OR toLower(coalesce(t.description,'')) CONTAINS tok)
+WITH d.name AS source, t.name AS endpoint, t.description AS summary, count(*) AS score
+RETURN source, endpoint, summary, score ORDER BY score DESC, source, endpoint LIMIT $limit
+"""
+
+
+def route_api_endpoints(intents: list[str], limit: int = 12) -> list[dict]:
+    """Retrieve the rest-api endpoints relevant to the given lookups from the graph,
+    so the API leg sees only the pertinent endpoints (scales past a static prompt).
+    Endpoint table names look like 'GET /tickets' -> path '/tickets'."""
+    tokens = [t for intent in intents for t in intent.lower().split() if len(t) > 2]
+    if not tokens:
+        return []
+    recs = driver().execute_query(
+        _API_EP_CYPHER, tokens=tokens, limit=limit, database_=settings.neo4j_database,
+    ).records
+    out = []
+    for r in recs:
+        # endpoint name is "<METHOD> <path>"; take the path part.
+        parts = r["endpoint"].split(" ", 1)
+        path = parts[1] if len(parts) == 2 else r["endpoint"]
+        out.append({"source": r["source"], "path": path, "summary": r["summary"] or ""})
+    return out
+
+
 def select_fact_table(routed_tables: list[str]) -> str | None:
     """Pick the SQL fact table from a routed set: the sales-schema table with the
     most direct foreign keys, tie-broken by reach at depth 2 (distinct tables
