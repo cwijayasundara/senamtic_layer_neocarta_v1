@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     pg_pool_min_size: int = 1
     pg_pool_max_size: int = 8
 
+    # Controller concurrency: max simultaneous answers computed server-wide, and
+    # the per-answer leg thread-pool size.
+    max_concurrent_answers: int = 8
+    leg_max_workers: int = 4
+
     @property
     def postgres_dsn(self) -> str:
         return (

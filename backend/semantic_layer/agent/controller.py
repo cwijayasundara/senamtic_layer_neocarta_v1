@@ -5,6 +5,7 @@ web UI is unchanged. Bounded LLM calls: extract(1) + legs(<=1 each) + synthesize
 """
 
 import json
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator
 
@@ -14,6 +15,8 @@ from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.config import settings
 from semantic_layer.web.grounding import check_numeric_grounding
 from semantic_layer.agent.cache import query_cache, embed_query
+
+_answer_gate = threading.BoundedSemaphore(settings.max_concurrent_answers)
 
 _SYNTH_PROMPT = (
     "Synthesize a concise answer from the leg results below. State which source(s) each "
@@ -74,62 +77,63 @@ def answer_stream(question: str) -> Iterator[dict]:
         collected.append(ev)
         return ev
 
-    try:
-        intent = extract_intent(question)
-        plan = build_plan(intent, question=question)
-        yield _emit({"type": "tool_result", "scope": "plan", "name": "plan_query",
-                     "content": json.dumps({k: plan[k] for k in ("highlight",) if k in plan})[:4000]})
+    with _answer_gate:
+        try:
+            intent = extract_intent(question)
+            plan = build_plan(intent, question=question)
+            yield _emit({"type": "tool_result", "scope": "plan", "name": "plan_query",
+                         "content": json.dumps({k: plan[k] for k in ("highlight",) if k in plan})[:4000]})
 
-        # Fan out independent legs concurrently.
-        jobs = {}
-        with ThreadPoolExecutor(max_workers=4) as pool:
-            for leg in plan.get("sql_legs", []):
-                jobs[pool.submit(run_sql_leg, leg)] = ("sql", leg["source"])
-            if intent.needs_api and intent.api_intents:
-                jobs[pool.submit(run_api_leg, intent.api_intents)] = ("api", "api")
-            if plan.get("doc_leg"):
-                jobs[pool.submit(run_doc_leg, plan["doc_leg"]["doc_query"])] = ("doc", "doc")
+            # Fan out independent legs concurrently.
+            jobs = {}
+            with ThreadPoolExecutor(max_workers=settings.leg_max_workers) as pool:
+                for leg in plan.get("sql_legs", []):
+                    jobs[pool.submit(run_sql_leg, leg)] = ("sql", leg["source"])
+                if intent.needs_api and intent.api_intents:
+                    jobs[pool.submit(run_api_leg, intent.api_intents)] = ("api", "api")
+                if plan.get("doc_leg"):
+                    jobs[pool.submit(run_doc_leg, plan["doc_leg"]["doc_query"])] = ("doc", "doc")
 
-            sql_runs, api_calls, doc_texts, doc_citations, doc = [], [], [], [], None
-            for fut in list(jobs):
-                kind, label = jobs[fut]
-                try:
-                    res = fut.result()
-                except Exception as exc:  # noqa: BLE001 — one leg failing must not sink the answer
+                sql_runs, api_calls, doc_texts, doc_citations, doc = [], [], [], [], None
+                for fut in list(jobs):
+                    kind, label = jobs[fut]
+                    try:
+                        res = fut.result()
+                    except Exception as exc:  # noqa: BLE001 — one leg failing must not sink the answer
+                        if kind == "sql":
+                            res = {"source": label, "sql": "", "columns": [], "rows": [],
+                                   "row_count": 0, "error": str(exc)}
+                        elif kind == "api":
+                            res = {"calls": [], "error": str(exc)}
+                        else:
+                            res = {"answer": "", "citations": [], "doc_texts": [], "error": str(exc)}
+                    yield _emit({"type": "tool_result", "scope": kind, "name": f"{kind}_leg",
+                                 "content": json.dumps(res, default=str)[:4000]})
                     if kind == "sql":
-                        res = {"source": label, "sql": "", "columns": [], "rows": [],
-                               "row_count": 0, "error": str(exc)}
+                        sql_runs.append(res)
                     elif kind == "api":
-                        res = {"calls": [], "error": str(exc)}
-                    else:
-                        res = {"answer": "", "citations": [], "doc_texts": [], "error": str(exc)}
-                yield _emit({"type": "tool_result", "scope": kind, "name": f"{kind}_leg",
-                             "content": json.dumps(res, default=str)[:4000]})
-                if kind == "sql":
-                    sql_runs.append(res)
-                elif kind == "api":
-                    api_calls.extend(res.get("calls", []))
-                elif kind == "doc":
-                    doc = res
-                    doc_citations = res.get("citations", [])
-                    doc_texts = res.get("doc_texts", [])
+                        api_calls.extend(res.get("calls", []))
+                    elif kind == "doc":
+                        doc = res
+                        doc_citations = res.get("citations", [])
+                        doc_texts = res.get("doc_texts", [])
 
-        summary = _synthesize(question, sql_runs, api_calls, doc,
-                              plan.get("api_correlations", []))
-        caveats = check_numeric_grounding(summary, sql_runs, api_calls, doc_texts)
-    except Exception as exc:  # noqa: BLE001 — never leave the UI hanging
-        # Exception path: yield but do NOT collect/cache — partial runs must not be stored.
-        yield {"type": "answer", "content": f"The agent could not complete this question: {exc}",
-               "highlight": [], "sql_runs": [], "api_calls": [], "doc_citations": [], "caveats": []}
-        return
+            summary = _synthesize(question, sql_runs, api_calls, doc,
+                                  plan.get("api_correlations", []))
+            caveats = check_numeric_grounding(summary, sql_runs, api_calls, doc_texts)
+        except Exception as exc:  # noqa: BLE001 — never leave the UI hanging
+            # Exception path: yield but do NOT collect/cache — partial runs must not be stored.
+            yield {"type": "answer", "content": f"The agent could not complete this question: {exc}",
+                   "highlight": [], "sql_runs": [], "api_calls": [], "doc_citations": [], "caveats": []}
+            return
 
-    answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
-                    "sql_runs": sql_runs, "api_calls": api_calls,
-                    "doc_citations": doc_citations, "caveats": caveats}
-    # Store the full event list (tool_results + answer) so replays include the reasoning trace.
-    if settings.query_cache_enabled:
-        _emit(answer_event)  # add answer_event to collected before storing
-        query_cache.put(question, collected, embedding=q_embedding)
-        yield answer_event
-    else:
-        yield answer_event
+        answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
+                        "sql_runs": sql_runs, "api_calls": api_calls,
+                        "doc_citations": doc_citations, "caveats": caveats}
+        # Store the full event list (tool_results + answer) so replays include the reasoning trace.
+        if settings.query_cache_enabled:
+            _emit(answer_event)  # add answer_event to collected before storing
+            query_cache.put(question, collected, embedding=q_embedding)
+            yield answer_event
+        else:
+            yield answer_event
