@@ -141,6 +141,39 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
 
 
 @tool
+def k_shortest_join_paths(table_a_id: str, table_b_id: str, k: int = 3) -> str:
+    """Return up to k shortest join paths between two tables, ranked by observed-join weight.
+
+    Like get_join_path but returns ALTERNATIVES (the planner/agent can fall back to a
+    different path if the top one's SQL fails). Each path is {tables, joins, observed}.
+    Returns {found, paths}."""
+    if table_a_id == table_b_id:
+        return json.dumps({"found": True,
+                           "paths": [{"tables": [table_a_id], "joins": [], "observed": 0}]})
+    try:
+        records = driver().execute_query(
+            """
+            MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
+            MATCH p = allShortestPaths((ta)-[:HAS_COLUMN|REFERENCES|OBSERVED_JOIN|SAME_ENTITY*1..24]-(tb))
+            WITH p, reduce(w = 0, r IN relationships(p) | w + coalesce(r.observations, 0)) AS observed
+            RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes, observed
+            ORDER BY observed DESC LIMIT $k
+            """,
+            a=table_a_id, b=table_b_id, k=k, database_=settings.neo4j_database,
+        ).records
+    except Exception as exc:  # noqa: BLE001 — surface graph errors, don't crash the run
+        return json.dumps({"found": False, "paths": [], "error": str(exc)})
+    paths = []
+    for rec in records:
+        nodes = rec["nodes"]
+        tables = [n.split("|", 1)[1] for n in nodes if n.startswith("Table|")]
+        cols = [n.split("|", 1)[1] for n in nodes if n.startswith("Column|")]
+        joins = [{"on": [cols[i], cols[i + 1]]} for i in range(0, len(cols) - 1, 2)]
+        paths.append({"tables": tables, "joins": joins, "observed": rec["observed"]})
+    return json.dumps({"found": bool(paths), "paths": paths})
+
+
+@tool
 def resolve_value(value: str) -> str:
     """Find which SQL table/column a filter VALUE lives in, and its exact stored spelling.
 
