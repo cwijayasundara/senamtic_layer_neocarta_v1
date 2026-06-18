@@ -1,0 +1,14 @@
+[
+  {"id": "deep_join_segment_revenue",
+   "question": "Which business segment has the highest total revenue? Use the sales database.",
+   "expect": "Names Data Center as the highest-revenue segment, sourced from the sales SQL database."},
+  {"id": "api_open_tickets",
+   "question": "How many open support tickets are there? Use the support system.",
+   "expect": "Gives a specific integer count of open tickets from the ITSM/support API."},
+  {"id": "doc_dc_growth",
+   "question": "According to the press releases, what drove Data Center growth?",
+   "expect": "Summarizes Data Center growth drivers and cites a press-release document id."},
+  {"id": "cross_source_blackwell_emea",
+   "question": "For EMEA Cloud customers, what was Blackwell Data Center revenue, and what do the press releases say about Blackwell?",
+   "expect": "Reports a SQL revenue figure scoped to EMEA region + Cloud industry + Blackwell architecture + Data Center segment, AND a press-release statement about Blackwell, each with its source."}
+]
