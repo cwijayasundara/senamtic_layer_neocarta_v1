@@ -35,6 +35,17 @@ def test_extract_entities_batch_handles_bad_json(monkeypatch):
     assert out == [[], [], []]
 
 
+def test_extract_entities_batch_count_mismatch(monkeypatch):
+    # LLM returns 2 groups for 3 input texts -> all empty per spec.
+    payload = json.dumps([
+        [{"name": "NVIDIA", "label": "Org"}],
+        [{"name": "Jensen Huang", "label": "Person"}],
+    ])
+    monkeypatch.setattr(ent_mod, "get_chat_model", lambda model=None: _FakeModel(payload))
+    out = extract_entities_batch(["a", "b", "c"])
+    assert out == [[], [], []]
+
+
 def test_extract_entities_batch_empty_input(monkeypatch):
     monkeypatch.setattr(ent_mod, "get_chat_model",
                         lambda model=None: (_ for _ in ()).throw(AssertionError("should not call model")))
