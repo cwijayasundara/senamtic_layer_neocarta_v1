@@ -62,13 +62,23 @@ def answer_stream(question: str) -> Iterator[dict]:
             except Exception:  # noqa: BLE001 — a cache miss must never block answering
                 q_embedding = None
         if cached is not None:
-            yield {**cached, "cached": True}
+            # Replay the full stored event list; mark the answer event as cached.
+            for ev in cached:
+                yield ({**ev, "cached": True} if ev.get("type") == "answer" else ev)
             return
+
+    # Collect every success-path event so we can store the full stream in the cache.
+    collected: list[dict] = []
+
+    def _emit(ev: dict) -> dict:
+        collected.append(ev)
+        return ev
+
     try:
         intent = extract_intent(question)
         plan = build_plan(intent, question=question)
-        yield {"type": "tool_result", "scope": "plan", "name": "plan_query",
-               "content": json.dumps({k: plan[k] for k in ("highlight",) if k in plan})[:4000]}
+        yield _emit({"type": "tool_result", "scope": "plan", "name": "plan_query",
+                     "content": json.dumps({k: plan[k] for k in ("highlight",) if k in plan})[:4000]})
 
         # Fan out independent legs concurrently.
         jobs = {}
@@ -93,8 +103,8 @@ def answer_stream(question: str) -> Iterator[dict]:
                         res = {"calls": [], "error": str(exc)}
                     else:
                         res = {"answer": "", "citations": [], "doc_texts": [], "error": str(exc)}
-                yield {"type": "tool_result", "scope": kind, "name": f"{kind}_leg",
-                       "content": json.dumps(res, default=str)[:4000]}
+                yield _emit({"type": "tool_result", "scope": kind, "name": f"{kind}_leg",
+                             "content": json.dumps(res, default=str)[:4000]})
                 if kind == "sql":
                     sql_runs.append(res)
                 elif kind == "api":
@@ -108,6 +118,7 @@ def answer_stream(question: str) -> Iterator[dict]:
                               plan.get("api_correlations", []))
         caveats = check_numeric_grounding(summary, sql_runs, api_calls, doc_texts)
     except Exception as exc:  # noqa: BLE001 — never leave the UI hanging
+        # Exception path: yield but do NOT collect/cache — partial runs must not be stored.
         yield {"type": "answer", "content": f"The agent could not complete this question: {exc}",
                "highlight": [], "sql_runs": [], "api_calls": [], "doc_citations": [], "caveats": []}
         return
@@ -115,6 +126,10 @@ def answer_stream(question: str) -> Iterator[dict]:
     answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
                     "sql_runs": sql_runs, "api_calls": api_calls,
                     "doc_citations": doc_citations, "caveats": caveats}
+    # Store the full event list (tool_results + answer) so replays include the reasoning trace.
     if settings.query_cache_enabled:
-        query_cache.put(question, answer_event, embedding=q_embedding)
-    yield answer_event
+        _emit(answer_event)  # add answer_event to collected before storing
+        query_cache.put(question, collected, embedding=q_embedding)
+        yield answer_event
+    else:
+        yield answer_event

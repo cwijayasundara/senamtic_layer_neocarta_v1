@@ -45,19 +45,33 @@ def test_answer_stream_serves_exact_cache_hit(monkeypatch):
     calls = {"intent": 0}
     monkeypatch.setattr(ctrl, "extract_intent",
                         lambda q: calls.__setitem__("intent", calls["intent"] + 1) or Intent())
+    # Plan with a sql_leg so the live run emits tool_result events.
     monkeypatch.setattr(ctrl, "build_plan", lambda intent, question=None: {
-        "highlight": [], "sql_legs": [], "doc_leg": None, "api_correlations": []})
+        "highlight": [], "sql_legs": [
+            {"source": "sales_pg", "fact_table": "t", "join_targets": [],
+             "filters": [], "scope": {}}
+        ], "doc_leg": None, "api_correlations": []})
+    monkeypatch.setattr(ctrl, "run_sql_leg", lambda leg: {
+        "source": "sales_pg", "sql": "SELECT 1", "columns": ["n"],
+        "rows": [[42]], "row_count": 1, "error": None})
     monkeypatch.setattr(ctrl, "_synthesize", lambda *a, **k: "cached-me")
     monkeypatch.setattr(ctrl, "check_numeric_grounding", lambda *a, **k: [])
 
     first = list(ctrl.answer_stream("Total revenue?"))
     assert first[-1]["content"] == "cached-me"
     assert calls["intent"] == 1
+    # Live run must have emitted at least one tool_result.
+    assert any(e["type"] == "tool_result" for e in first)
 
     second = list(ctrl.answer_stream("  total   revenue? "))   # normalized same question
     assert second[-1]["type"] == "answer"
     assert second[-1]["content"] == "cached-me"
+    assert second[-1].get("cached") is True
     assert calls["intent"] == 1                                # legs NOT re-run on hit
+    # Cache-hit replay must include the tool_result events (not just the answer).
+    assert any(e["type"] == "tool_result" for e in second), (
+        "cache hit must replay tool_result events for the UI reasoning trace"
+    )
 
 
 def test_answer_stream_serves_semantic_hit(monkeypatch):
@@ -72,12 +86,22 @@ def test_answer_stream_serves_semantic_hit(monkeypatch):
     }
     monkeypatch.setattr(ctrl, "embed_query", lambda q: embeds[cache_mod._normalize(q)])
     monkeypatch.setattr(ctrl, "extract_intent", lambda q: Intent())
+    # Plan with a doc_leg so the live run emits a tool_result for doc.
     monkeypatch.setattr(ctrl, "build_plan", lambda intent, question=None: {
-        "highlight": [], "sql_legs": [], "doc_leg": None, "api_correlations": []})
+        "highlight": [], "sql_legs": [], "doc_leg": {"doc_query": "revenue", "candidate_doc_ids": [], "periods": []},
+        "api_correlations": []})
+    monkeypatch.setattr(ctrl, "run_doc_leg", lambda q: {
+        "answer": "doc revenue", "citations": [], "doc_texts": [], "error": None})
     monkeypatch.setattr(ctrl, "_synthesize", lambda *a, **k: "revenue-answer")
     monkeypatch.setattr(ctrl, "check_numeric_grounding", lambda *a, **k: [])
 
-    list(ctrl.answer_stream("What was total revenue"))           # populate
+    first_run = list(ctrl.answer_stream("What was total revenue"))  # populate
+    assert any(e["type"] == "tool_result" for e in first_run)
+
     out = list(ctrl.answer_stream("What is the total revenue"))  # paraphrase -> semantic hit
     assert out[-1]["content"] == "revenue-answer"
     assert out[-1].get("cached") is True
+    # Semantic-hit replay must also include the tool_result events.
+    assert any(e["type"] == "tool_result" for e in out), (
+        "semantic cache hit must replay tool_result events for the UI reasoning trace"
+    )

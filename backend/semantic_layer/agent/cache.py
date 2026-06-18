@@ -2,6 +2,7 @@
 (embedding cosine) lookup, LRU-bounded with TTL. A Redis-backed variant (Task C3)
 is the production path for multi-worker deploys; this default suits a single worker."""
 
+import threading
 import time
 from collections import OrderedDict
 
@@ -27,45 +28,49 @@ class QueryCache:
         self._max = max_entries
         self._ttl = ttl_seconds
         self._now = now
-        # key -> {"answer": dict, "embedding": list[float] | None, "ts": float}
+        self._lock = threading.Lock()
+        # key -> {"answer": <value>, "embedding": list[float] | None, "ts": float}
         self._store: "OrderedDict[str, dict]" = OrderedDict()
 
     def _fresh(self, entry: dict) -> bool:
         return (self._now() - entry["ts"]) <= self._ttl
 
-    def get_exact(self, question: str) -> dict | None:
+    def get_exact(self, question: str) -> object | None:
         key = _normalize(question)
-        entry = self._store.get(key)
-        if entry is None:
-            return None
-        if not self._fresh(entry):
-            self._store.pop(key, None)
-            return None
-        self._store.move_to_end(key)
-        return entry["answer"]
-
-    def get_semantic(self, embedding: list[float], threshold: float) -> dict | None:
-        best, best_sim, best_key = None, threshold, None
-        for key, entry in list(self._store.items()):
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return None
             if not self._fresh(entry):
                 self._store.pop(key, None)
-                continue
-            emb = entry.get("embedding")
-            if emb is None:
-                continue
-            sim = cosine(embedding, emb)
-            if sim >= best_sim:
-                best, best_sim, best_key = entry, sim, key
-        if best_key is not None:
-            self._store.move_to_end(best_key)  # promote winner to MRU position
-        return best["answer"] if best else None
+                return None
+            self._store.move_to_end(key)
+            return entry["answer"]
 
-    def put(self, question: str, answer: dict, embedding: list[float] | None = None) -> None:
+    def get_semantic(self, embedding: list[float], threshold: float) -> object | None:
+        with self._lock:
+            best, best_sim, best_key = None, threshold, None
+            for key, entry in list(self._store.items()):
+                if not self._fresh(entry):
+                    self._store.pop(key, None)
+                    continue
+                emb = entry.get("embedding")
+                if emb is None:
+                    continue
+                sim = cosine(embedding, emb)
+                if sim >= best_sim:
+                    best, best_sim, best_key = entry, sim, key
+            if best_key is not None:
+                self._store.move_to_end(best_key)  # promote winner to MRU position
+            return best["answer"] if best else None
+
+    def put(self, question: str, answer: object, embedding: list[float] | None = None) -> None:
         key = _normalize(question)
-        self._store[key] = {"answer": answer, "embedding": embedding, "ts": self._now()}
-        self._store.move_to_end(key)
-        while len(self._store) > self._max:
-            self._store.popitem(last=False)   # evict oldest
+        with self._lock:
+            self._store[key] = {"answer": answer, "embedding": embedding, "ts": self._now()}
+            self._store.move_to_end(key)
+            while len(self._store) > self._max:
+                self._store.popitem(last=False)   # evict oldest
 
 
 def embed_query(question: str) -> list[float]:
