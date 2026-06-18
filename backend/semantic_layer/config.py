@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     cache_similarity_threshold: float = 0.95
 
     # Postgres connection pool (replaces per-call psycopg.connect in sql_tools).
+    # NOTE (multi-worker): the pool and the answer-concurrency gate are PER PROCESS.
+    # Under N uvicorn/gunicorn workers the real Postgres connection ceiling is
+    # N * pg_pool_max_size — size it against Postgres `max_connections`, and treat
+    # max_concurrent_answers as a per-worker limit (cluster ceiling = N * value).
     pg_pool_min_size: int = 1
     pg_pool_max_size: int = 8
 

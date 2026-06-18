@@ -1,6 +1,7 @@
 """FastAPI web API for the semantic-layer UI."""
 
 import json
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,8 +10,17 @@ from sse_starlette.sse import EventSourceResponse
 
 from semantic_layer.web.graph_api import get_sources, get_schema_graph
 from semantic_layer.web.events import stream_chat_events
+from semantic_layer.agent.pg_pool import ensure_pool_open, get_pool
 
-app = FastAPI(title="NeoCarta-Local Web API")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    ensure_pool_open()        # warm the Postgres pool at startup
+    yield
+    get_pool().close()        # release pooled connections on shutdown
+
+
+app = FastAPI(title="NeoCarta-Local Web API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )

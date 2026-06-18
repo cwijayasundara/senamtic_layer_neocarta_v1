@@ -8,7 +8,7 @@ from pathlib import Path
 import psycopg
 from langchain_core.tools import tool
 
-from semantic_layer.agent.pg_pool import get_pool
+from semantic_layer.agent.pg_pool import get_pool, ensure_pool_open
 from semantic_layer.config import settings
 
 _READONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
@@ -22,9 +22,8 @@ def _run(source: str, sql: str, base_dir: str | None = None,
     limit = settings.agent_max_rows
     try:
         if source == "sales_pg":
-            pool = get_pool()
-            pool.open()  # idempotent; opens the pool lazily on first real use
-            with pool.connection() as conn, conn.cursor() as cur:
+            ensure_pool_open()
+            with get_pool().connection() as conn, conn.cursor() as cur:
                 cur.execute(sql) if params is None else cur.execute(sql, params)
                 cols = [d.name for d in cur.description]
                 rows = cur.fetchmany(limit)

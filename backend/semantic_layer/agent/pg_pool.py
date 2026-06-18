@@ -20,3 +20,17 @@ def get_pool() -> ConnectionPool:
         max_size=settings.pg_pool_max_size,
         open=False,
     )
+
+
+_pool_opened = False
+
+
+def ensure_pool_open() -> None:
+    """Open the cached pool exactly once per process. The `_pool_opened` guard makes
+    this idempotent — needed because ConnectionPool.open() raises if the pool is
+    already open, so callers must not double-open. Callable from web startup, the CLI,
+    ingest, or sql_tools; avoids re-calling pool.open() on every query."""
+    global _pool_opened
+    if not _pool_opened:
+        get_pool().open()
+        _pool_opened = True
