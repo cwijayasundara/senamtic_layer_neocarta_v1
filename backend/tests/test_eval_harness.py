@@ -39,3 +39,34 @@ def test_judge_answer_returns_score_and_reason(monkeypatch):
                        "Names Data Center as highest-revenue segment from sales SQL.")
     assert out["score"] == 4
     assert "Data Center" in out["reason"]
+
+
+from semantic_layer.eval import run as run_mod
+from semantic_layer.eval.run import run_eval
+
+
+def test_run_eval_aggregates_scores():
+    evalset = [
+        {"id": "a", "question": "q1", "expect": "e1"},
+        {"id": "b", "question": "q2", "expect": "e2"},
+        {"id": "c", "question": "q3", "expect": "e3"},
+    ]
+    answers = {"q1": "A1", "q2": "A2", "q3": "A3"}
+    scores = {"q1": 4, "q2": 3, "q3": 1}
+    report = run_eval(
+        evalset,
+        answer_fn=lambda q: answers[q],
+        judge_fn=lambda question, answer, expect: {"score": scores[question], "reason": "r"},
+    )
+    assert [r["id"] for r in report["results"]] == ["a", "b", "c"]
+    assert report["mean_score"] == round((4 + 3 + 1) / 3, 2)
+    assert report["pass_rate"] == round(2 / 3, 2)   # a & b pass (>=3), c fails
+
+
+def test_default_answer_fn_extracts_final_answer(monkeypatch):
+    events = [
+        {"type": "tool_result", "scope": "sql", "content": "{}"},
+        {"type": "answer", "content": "the final answer", "highlight": []},
+    ]
+    monkeypatch.setattr(run_mod, "answer_stream", lambda q: iter(events))
+    assert run_mod.default_answer_fn("anything") == "the final answer"
