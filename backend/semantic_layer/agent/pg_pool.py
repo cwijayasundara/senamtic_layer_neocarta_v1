@@ -26,10 +26,10 @@ _pool_opened = False
 
 
 def ensure_pool_open() -> None:
-    """Open the cached pool exactly once per process. The `_pool_opened` guard makes
-    this idempotent — needed because ConnectionPool.open() raises if the pool is
-    already open, so callers must not double-open. Callable from web startup, the CLI,
-    ingest, or sql_tools; avoids re-calling pool.open() on every query."""
+    """Open the cached pool exactly once per process. ConnectionPool.open() is itself
+    idempotent (a redundant call is a harmless no-op in psycopg_pool 3.3.1), but the
+    `_pool_opened` guard avoids re-invoking it on every query. Callable from web
+    startup, the CLI, ingest, or sql_tools."""
     global _pool_opened
     if not _pool_opened:
         get_pool().open()
