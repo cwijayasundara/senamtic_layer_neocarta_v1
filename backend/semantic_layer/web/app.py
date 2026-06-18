@@ -37,8 +37,8 @@ def sources():
 
 
 @app.get("/graph")
-def graph():
-    return get_schema_graph()
+def graph(source: str | None = None, max_chunks: int | None = None):
+    return get_schema_graph(source=source, max_chunks=max_chunks)
 
 
 class ChatRequest(BaseModel):

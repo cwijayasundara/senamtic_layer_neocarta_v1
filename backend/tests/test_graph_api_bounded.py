@@ -26,3 +26,17 @@ def test_get_schema_graph_source_filter_excludes_other_sources(ingested_graph):
     sources = {n.get("source") for n in out["nodes"] if n["kind"] == "table"}
     assert sources <= {"sales_pg"}            # only sales_pg tables
     assert not [n for n in out["nodes"] if n["kind"] == "chunk"]  # docs excluded under a SQL source
+
+
+def test_graph_endpoint_forwards_query_params(monkeypatch):
+    from fastapi.testclient import TestClient
+    from semantic_layer.web import app as app_mod
+
+    captured = {}
+    monkeypatch.setattr(app_mod, "get_schema_graph",
+                        lambda source=None, max_chunks=None: captured.update(
+                            source=source, max_chunks=max_chunks) or {"nodes": [], "edges": [], "truncated": False})
+    client = TestClient(app_mod.app)
+    r = client.get("/graph", params={"source": "sales_pg", "max_chunks": 50})
+    assert r.status_code == 200
+    assert captured == {"source": "sales_pg", "max_chunks": 50}
