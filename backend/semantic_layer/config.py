@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     max_concurrent_answers: int = 8
     leg_max_workers: int = 4
 
+    # Bounded /graph rendering: cap the document chunk layer so the UI payload stays
+    # renderable at thousands of documents (the structured layer is returned in full).
+    graph_max_chunks: int = 300
+
     @property
     def postgres_dsn(self) -> str:
         return (

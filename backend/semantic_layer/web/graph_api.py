@@ -19,19 +19,23 @@ def get_sources() -> list[dict]:
     return out
 
 
-def get_schema_graph() -> dict:
-    """Renderable graph for the UI.
+def get_schema_graph(source: str | None = None, max_chunks: int | None = None) -> dict:
+    """Renderable graph for the UI, BOUNDED for scale.
 
-    Structured layer: source + table nodes; HAS_TABLE + table-level REFERENCES edges.
-    Document layer: document -> chunk -> entity, the entity -> value bridge, and the
-    value -> owning table link (HAS_VALUE) that ties the documents back into the
-    structured catalog — so a PDF renders as a connected context graph, not a blob."""
+    `source` (a Database name) restricts the structured layer to that source's tables;
+    the document layer is included only when source is None or 'documents'. The chunk
+    layer is capped at max_chunks (default settings.graph_max_chunks); entity/bridge
+    edges are computed only over the included chunks. Returns {nodes, edges, truncated}."""
+    cap = max_chunks if max_chunks is not None else settings.graph_max_chunks
+    include_docs = source is None or source == "documents"
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
+    truncated = False
 
+    db_filter = "WHERE d.name = $source" if (source and source != "documents") else ""
     db_rows = driver().execute_query(
-        "MATCH (d:Database) RETURN d.id AS id, d.name AS name, d.platform AS platform",
-        database_=settings.neo4j_database,
+        f"MATCH (d:Database) {db_filter} RETURN d.id AS id, d.name AS name, d.platform AS platform",
+        source=source, database_=settings.neo4j_database,
     ).records
     for r in db_rows:
         platform = (r["platform"] or "").upper()
@@ -39,16 +43,17 @@ def get_schema_graph() -> dict:
                           "source": r["name"],
                           "platform": "sql" if platform in _SQL_PLATFORMS else "api"}
 
+    tbl_filter = "WHERE d.name = $source" if (source and source != "documents") else ""
     tbl_rows = driver().execute_query(
-        """
+        f"""
         MATCH (d:Database)-[:HAS_SCHEMA]->(:Schema)-[:HAS_TABLE]->(t:Table)
+        {tbl_filter}
         RETURN t.id AS id, t.name AS name, d.id AS db_id, d.name AS source
         """,
-        database_=settings.neo4j_database,
+        source=source, database_=settings.neo4j_database,
     ).records
     for r in tbl_rows:
-        nodes[r["id"]] = {"id": r["id"], "label": r["name"], "kind": "table",
-                          "source": r["source"]}
+        nodes[r["id"]] = {"id": r["id"], "label": r["name"], "kind": "table", "source": r["source"]}
         edges.append({"source": r["db_id"], "target": r["id"], "type": "HAS_TABLE"})
 
     ref_rows = driver().execute_query(
@@ -60,43 +65,47 @@ def get_schema_graph() -> dict:
         database_=settings.neo4j_database,
     ).records
     for r in ref_rows:
-        edges.append({"source": r["a"], "target": r["b"], "type": "REFERENCES"})
+        if r["a"] in nodes and r["b"] in nodes:   # only edges between included tables
+            edges.append({"source": r["a"], "target": r["b"], "type": "REFERENCES"})
+
+    if not include_docs:
+        return {"nodes": list(nodes.values()), "edges": edges, "truncated": truncated}
 
     doc_rows = driver().execute_query(
         "MATCH (d:Document) RETURN d.id AS id, d.title AS title",
         database_=settings.neo4j_database,
     ).records
     for r in doc_rows:
-        nodes[r["id"]] = {"id": r["id"], "label": r["title"], "kind": "document",
-                          "source": "documents"}
+        nodes[r["id"]] = {"id": r["id"], "label": r["title"], "kind": "document", "source": "documents"}
 
-    # Document -> Chunk: the actual PDF content, split into passages.
     chunk_rows = driver().execute_query(
         """
         MATCH (d:Document)-[:HAS_CHUNK]->(c:Chunk)
         RETURN c.id AS id, c.ordinal AS ordinal, c.text AS text, d.id AS doc_id
         ORDER BY d.id, c.ordinal
+        LIMIT $cap_plus
         """,
-        database_=settings.neo4j_database,
+        cap_plus=cap + 1, database_=settings.neo4j_database,
     ).records
+    if len(chunk_rows) > cap:
+        truncated = True
+        chunk_rows = chunk_rows[:cap]
+    chunk_ids = [r["id"] for r in chunk_rows]
     for r in chunk_rows:
         nodes[r["id"]] = {"id": r["id"], "label": f"¶{r['ordinal']}", "kind": "chunk",
                           "source": "documents", "text": (r["text"] or "")[:280]}
         edges.append({"source": r["doc_id"], "target": r["id"], "type": "HAS_CHUNK"})
 
-    # Chunk -> Entity: the entities extracted from each passage. We surface only
-    # entities that carry structure — mentioned by 2+ passages OR bridged to the
-    # catalog — so the document graph reads as a constellation, not a hairball of
-    # hundreds of one-off mentions. Chunks still attach to their document regardless.
     ent_rows = driver().execute_query(
         """
         MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
+        WHERE c.id IN $chunk_ids
         WITH e, collect(DISTINCT c.id) AS chunk_ids
         WHERE size(chunk_ids) >= 2 OR exists((e)-[:REFERS_TO]->(:Value))
         UNWIND chunk_ids AS chunk_id
         RETURN chunk_id, e.norm AS norm, e.name AS name, e.label AS label
         """,
-        database_=settings.neo4j_database,
+        chunk_ids=chunk_ids, database_=settings.neo4j_database,
     ).records
     for r in ent_rows:
         eid = f"entity:{r['norm']}"
@@ -104,23 +113,23 @@ def get_schema_graph() -> dict:
                                "source": "documents", "entityType": r["label"]})
         edges.append({"source": r["chunk_id"], "target": eid, "type": "MENTIONS"})
 
-    # Entity -> Value bridge, and Value -> owning Table, linking docs to the catalog.
     bridge_rows = driver().execute_query(
         """
         MATCH (e:Entity)-[:REFERS_TO]->(v:Value)
         OPTIONAL MATCH (t:Table)-[:HAS_COLUMN]->(:Column)-[:HAS_VALUE]->(v)
-        RETURN e.norm AS enorm, v.norm AS vnorm, v.name AS vname,
-               collect(DISTINCT t.id) AS tables
+        RETURN e.norm AS enorm, v.norm AS vnorm, v.name AS vname, collect(DISTINCT t.id) AS tables
         """,
         database_=settings.neo4j_database,
     ).records
     for r in bridge_rows:
+        eid = f"entity:{r['enorm']}"
+        if eid not in nodes:        # only bridge entities that survived the chunk cap
+            continue
         vid = f"value:{r['vnorm']}"
-        nodes.setdefault(vid, {"id": vid, "label": r["vname"], "kind": "value",
-                               "source": "catalog"})
-        edges.append({"source": f"entity:{r['enorm']}", "target": vid, "type": "REFERS_TO"})
+        nodes.setdefault(vid, {"id": vid, "label": r["vname"], "kind": "value", "source": "catalog"})
+        edges.append({"source": eid, "target": vid, "type": "REFERS_TO"})
         for tid in r["tables"]:
-            if tid in nodes:  # tie the bridge into the existing table graph
+            if tid in nodes:
                 edges.append({"source": vid, "target": tid, "type": "HAS_VALUE"})
 
-    return {"nodes": list(nodes.values()), "edges": edges}
+    return {"nodes": list(nodes.values()), "edges": edges, "truncated": truncated}
