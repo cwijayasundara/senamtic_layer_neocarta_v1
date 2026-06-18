@@ -20,8 +20,8 @@ from semantic_layer.ingest.value_indexer import index_values
 from semantic_layer.ingest.period_indexer import index_periods
 from semantic_layer.ingest.bridge import bridge_sources
 from semantic_layer.ingest.query_log_indexer import index_query_log
-from semantic_layer.ingest.doc_parser import parse_document
-from semantic_layer.ingest.doc_loader import load_document
+from semantic_layer.ingest.doc_parser import parse_document, file_content_hash
+from semantic_layer.ingest.doc_loader import load_document, document_unchanged
 from semantic_layer.ingest.doc_graph import extract_period, link_document_period
 
 
@@ -63,12 +63,20 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
 
         docs_dir = Path(settings.docs_dir)
         pdfs = sorted(docs_dir.glob("*.pdf"))
+        ingested, skipped = 0, 0
         for pdf in pdfs:
+            doc_id = f"doc:{pdf.stem}"
+            if not reset and settings.ingest_skip_unchanged and \
+                    document_unchanged(driver, doc_id, file_content_hash(str(pdf))):
+                skipped += 1
+                continue
             doc = parse_document(str(pdf))
             load_document(driver, doc)
             # Deterministic period extraction (regex) — runs without the LLM.
             link_document_period(driver, doc["doc_id"], extract_period(doc))
-        counts["documents"] = len(pdfs)
+            ingested += 1
+        counts["documents"] = ingested
+        counts["documents_skipped"] = skipped
 
         if with_llm:
             _run_llm_stages(driver, bundles)

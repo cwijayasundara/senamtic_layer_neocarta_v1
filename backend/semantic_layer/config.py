@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     entity_batch_size: int = 10
     ingest_max_workers: int = 8
 
+    # Incremental ingestion: skip re-parsing/re-embedding documents whose source
+    # bytes are unchanged (only consulted when run_ingest is called with reset=False).
+    ingest_skip_unchanged: bool = True
+
     # Query cache: exact-match + semantic (embedding cosine) lookup in front of the
     # agent, to skip re-running legs/synthesis for repeated or near-identical asks.
     query_cache_enabled: bool = True
