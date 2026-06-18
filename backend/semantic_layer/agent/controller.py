@@ -6,6 +6,7 @@ web UI is unchanged. Bounded LLM calls: extract(1) + legs(<=1 each) + synthesize
 
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator
 
@@ -95,8 +96,10 @@ def answer_stream(question: str) -> Iterator[dict]:
                     jobs[pool.submit(run_doc_leg, plan["doc_leg"]["doc_query"])] = ("doc", "doc")
 
                 sql_runs, api_calls, doc_texts, doc_citations, doc = [], [], [], [], None
+                trace = []
                 for fut in list(jobs):
                     kind, label = jobs[fut]
+                    _t0 = time.perf_counter()
                     try:
                         res = fut.result()
                     except Exception as exc:  # noqa: BLE001 — one leg failing must not sink the answer
@@ -117,6 +120,9 @@ def answer_stream(question: str) -> Iterator[dict]:
                         doc = res
                         doc_citations = res.get("citations", [])
                         doc_texts = res.get("doc_texts", [])
+                    trace.append({"name": f"{kind}:{label}",
+                                  "duration_ms": round((time.perf_counter() - _t0) * 1000, 2),
+                                  "ok": (res.get("error") is None)})
 
             summary = _synthesize(question, sql_runs, api_calls, doc,
                                   plan.get("api_correlations", []))
@@ -129,7 +135,7 @@ def answer_stream(question: str) -> Iterator[dict]:
 
         answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
                         "sql_runs": sql_runs, "api_calls": api_calls,
-                        "doc_citations": doc_citations, "caveats": caveats}
+                        "doc_citations": doc_citations, "caveats": caveats, "trace": trace}
         # Store the full event list (tool_results + answer) so replays include the reasoning trace.
         if settings.query_cache_enabled:
             _emit(answer_event)  # add answer_event to collected before storing
