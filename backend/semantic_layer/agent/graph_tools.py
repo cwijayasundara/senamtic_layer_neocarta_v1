@@ -110,16 +110,21 @@ def get_join_path(table_a_id: str, table_b_id: str) -> str:
     # start == end (Neo4j's forbid_shortestpath_common_nodes), so short-circuit here.
     if table_a_id == table_b_id:
         return json.dumps({"found": True, "tables": [table_a_id], "joins": []})
-    # The join path alternates HAS_COLUMN (move into a table's column) and
-    # REFERENCES (cross an FK to another table's column). A column-only path
-    # would be disconnected, since columns within a table are not linked.
+    # The join path alternates HAS_COLUMN (move into a table's column) and an
+    # inter-table column edge: REFERENCES (a declared FK), OBSERVED_JOIN (a join
+    # actually seen in the query log — catches joins no FK declares), or
+    # SAME_ENTITY (a cross-source bridge). A column-only path would be
+    # disconnected, since columns within a table are not linked.
     try:
         records = driver().execute_query(
             """
             MATCH (ta:Table {id: $a}), (tb:Table {id: $b})
-            MATCH p = shortestPath((ta)-[:HAS_COLUMN|REFERENCES|SAME_ENTITY*1..24]-(tb))
+            MATCH p = allShortestPaths((ta)-[:HAS_COLUMN|REFERENCES|OBSERVED_JOIN|SAME_ENTITY*1..24]-(tb))
+            // Among equally-short paths, prefer the most empirically-travelled one:
+            // rank by total OBSERVED_JOIN weight so logged joins beat FK-only guesses.
+            WITH p, reduce(w = 0, r IN relationships(p) | w + coalesce(r.observations, 0)) AS observed
             RETURN [n IN nodes(p) | head(labels(n)) + '|' + n.id] AS nodes
-            ORDER BY length(p) LIMIT 1
+            ORDER BY observed DESC LIMIT 1
             """,
             a=table_a_id, b=table_b_id, database_=settings.neo4j_database,
         ).records

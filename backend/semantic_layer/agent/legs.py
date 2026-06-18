@@ -102,6 +102,22 @@ _API_LEG_PROMPT = (
 )
 
 
+# String filters that mock APIs match against Title Case stored values (e.g.
+# ticket status "Open"/"In Progress", severity "High"). The model often emits these
+# lowercase; the API now compares case-insensitively, but we still canonicalize here
+# so the recorded params match the source's casing and stay robust to that comparison.
+_TITLECASE_PARAMS = ("status", "severity")
+
+
+def _normalize_params(params: dict) -> dict:
+    out = dict(params)
+    for key in _TITLECASE_PARAMS:
+        val = out.get(key)
+        if isinstance(val, str):
+            out[key] = val.strip().title()
+    return out
+
+
 def run_api_leg(api_intents: list[str]) -> dict:
     # function_calling tolerates the open `params` dict; strict structured output rejects it.
     model = get_chat_model(settings.llm_model).with_structured_output(
@@ -110,6 +126,7 @@ def run_api_leg(api_intents: list[str]) -> dict:
                          ("human", "Lookups: " + "; ".join(api_intents))])
     results = []
     for c in plan.calls:
+        c.params = _normalize_params(c.params)
         resp = json.loads(call_api.invoke(
             {"source": c.source, "path": c.path, "params": c.params}))
         body = resp.get("data")

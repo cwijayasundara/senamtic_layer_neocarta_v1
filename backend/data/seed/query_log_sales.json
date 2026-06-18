@@ -1,0 +1,79 @@
+[
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT r.name, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.sales_order so ON ol.order_id = so.order_id JOIN sales.customer c ON so.customer_id = c.customer_id JOIN sales.country co ON c.country_id = co.country_id JOIN sales.region r ON co.region_id = r.region_id GROUP BY r.name"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT pl.name, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.product p ON ol.product_id = p.product_id JOIN sales.product_line pl ON p.product_line_id = pl.product_line_id GROUP BY pl.name"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT s.name, a.name, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.product p ON ol.product_id = p.product_id JOIN sales.product_line pl ON p.product_line_id = pl.product_line_id JOIN sales.segment s ON pl.segment_id = s.segment_id JOIN sales.architecture a ON pl.architecture_id = a.architecture_id GROUP BY s.name, a.name"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT fp.fiscal_year, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.sales_order so ON ol.order_id = so.order_id JOIN sales.fiscal_period fp ON so.fiscal_period_id = fp.fiscal_period_id GROUP BY fp.fiscal_year"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT i.name, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.sales_order so ON ol.order_id = so.order_id JOIN sales.customer c ON so.customer_id = c.customer_id JOIN sales.industry i ON c.industry_id = i.industry_id GROUP BY i.name"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "sales_pg",
+          "query": "SELECT r.name, SUM(ol.amount) AS revenue FROM sales.order_line ol JOIN sales.sales_order so ON ol.order_id = so.order_id JOIN sales.customer c ON so.customer_id = c.customer_id JOIN sales.country co ON c.country_id = co.country_id JOIN sales.region r ON co.region_id = r.region_id WHERE r.name = 'EMEA' GROUP BY r.name"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  },
+  {
+    "protoPayload": {
+      "serviceData": {
+        "jobQueryRequest": {
+          "projectId": "financials",
+          "query": "SELECT i.fiscal_year, i.revenue, SUM(h.employee_count) AS headcount FROM main.income_statement i JOIN main.headcount h ON i.fiscal_year = h.fiscal_year GROUP BY i.fiscal_year, i.revenue"
+        },
+        "jobQueryResponse": {"job": {"jobStatistics": {"referencedTables": []}}}
+      }
+    }
+  }
+]

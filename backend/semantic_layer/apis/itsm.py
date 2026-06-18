@@ -20,9 +20,9 @@ def list_tickets(
 ):
     rows = itsm_data()["tickets"]
     if severity:
-        rows = [t for t in rows if t["severity"] == severity]
+        rows = [t for t in rows if t["severity"].lower() == severity.lower()]
     if status:
-        rows = [t for t in rows if t["status"] == status]
+        rows = [t for t in rows if t["status"].lower() == status.lower()]
     if account_id is not None:
         rows = [t for t in rows if t["account_id"] == account_id]
     return rows
@@ -40,5 +40,5 @@ def get_ticket(ticket_id: int):
 def list_rmas(status: str | None = None):
     rows = itsm_data()["rmas"]
     if status:
-        rows = [r for r in rows if r["status"] == status]
+        rows = [r for r in rows if r["status"].lower() == status.lower()]
     return rows

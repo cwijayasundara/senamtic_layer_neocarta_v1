@@ -25,11 +25,13 @@ All data is NVIDIA-themed and synthetic (except the two real PDFs already in `do
 | | NeoCarta (`neo4j-labs/neocarta`) | create-context-graph (`neo4j-labs/create-context-graph`) |
 |---|---|---|
 | Type | Python **library** (ETL: Extractors→Transformers→Loaders→Connectors) | Interactive **CLI scaffolder** that generates a full-stack app |
-| Builds | *Metadata* graph: `Database/Schema/Table/Column/BusinessTerm` + `REFERENCES` | *Entity/context* graph (POLE+O) from unstructured + SaaS data, with provenance/memory |
-| For | Query routing, **Text2SQL**, data discovery over **structured DBs** | Conversational/entity knowledge over **unstructured + SaaS** sources |
+| Builds | *Metadata + semantic* graph: `Database/Schema/Table/Column/Value/BusinessTerm/Glossary/Category` + `REFERENCES`, **`Query`/`CTE` from mined query logs**, and **OSI semantic models** (`OsiSemanticModel/Metric/Join/Expression`) | *Entity/context* graph (POLE+O) from unstructured + SaaS data, with provenance/memory |
+| For | Query routing, **Text2SQL**, join discovery, data discovery over **structured DBs**, **query-log usage analysis**, and **semantic-spec (OSI) ingestion** | Conversational/entity knowledge over **unstructured + SaaS** sources |
 | Exposes | MCP server with vector/full-text/**hybrid** search | FastAPI + Next.js app, 8 agent frameworks, 13+ connectors |
 
-**Decision:** Hybrid. Use the **NeoCarta library** as the metadata-semantic-layer engine for structured DBs *and* the mocked APIs (a custom Extractor models each API's OpenAPI spec as virtual tables/columns). **Reimplement create-context-graph's entity + provenance idea lightly** for documents. Keep our **own deepagents orchestration and a custom Next.js UI** rather than create-context-graph's stock Chakra app. The two graph halves join via shared `BusinessTerm`/`Entity` nodes — that bridge *is* the semantic layer.
+> **Capability note (verified against `neocarta==0.7.0`, 2026-06-18).** NeoCarta is broader than "structured DBs only": shipped connectors are `bigquery` (schema + **logs**), `csv`, `dataplex` (schema + glossary), `osi`, and `query_log`; node labels include `Query`, `CTE`, and the full OSI `Metric/Join/Domain` family (`neocarta/enums.py`). What NeoCarta does **not** have is an **unstructured-document** connector — there is no PDF/text/chunk/entity pipeline and `enrichment/embeddings` embeds *metadata* node descriptions (`[TABLE, COLUMN]`), not prose. So our reimplementation of the document/context layer is still required, but NeoCarta's **query-log mining** and **OSI semantic models** are real capabilities we can adopt rather than rebuild. (A vendor diagram showing "documents, ontologies, query logs" refers to structured/semantic-spec inputs — OSI/glossary — not unstructured-document RAG.)
+
+**Decision:** Hybrid. Use the **NeoCarta library** as the metadata-semantic-layer engine for structured DBs *and* the mocked APIs (a custom Extractor models each API's OpenAPI spec as virtual tables/columns), **and mine query logs via NeoCarta's `query_log` connector to enrich join-path discovery** (see §5). **Reimplement create-context-graph's entity + provenance idea lightly** for documents (NeoCarta has no unstructured-document connector). Keep our **own deepagents orchestration and a custom Next.js UI** rather than create-context-graph's stock Chakra app. The two graph halves join via shared `BusinessTerm`/`Entity` nodes — that bridge *is* the semantic layer. **OSI semantic models remain an unused-but-available path** for curated metrics, should we want them over hand-rolled `BusinessTerm` generation.
 
 ## 3. Data Sources (synthetic, NVIDIA-themed)
 
@@ -60,8 +62,12 @@ Three layers in one Neo4j database:
 
 ## 5. Ingestion (build-time pipeline)
 
-- **NeoCarta SQL extractors:** introspect Postgres + both SQLite DBs → metadata-layer nodes + `REFERENCES`.
+- **NeoCarta SQL extractors:** introspect Postgres + both SQLite DBs → metadata-layer nodes + `REFERENCES` (from *declared* FKs).
 - **Custom API extractor:** read each mock API's OpenAPI spec → virtual `Endpoint`/`Field` nodes.
+- **NeoCarta query-log connector (`query_log_indexer.py`):** parse a BigQuery-audit-log-shaped query log (`data/seed/query_log_sales.json`) with NeoCarta's `QueryLogExtractor`, then bridge its discovered joins onto our canonical catalog as weighted `(:Column)-[:OBSERVED_JOIN {observations}]->(:Column)` edges (+ a `:Query` provenance node). Because NeoCarta's parser emits dotted ids (`project.dataset.table`) while we use prefixed ids (`table:source.schema.table`), we resolve each join column by **(table name, column name) across all SQL sources** rather than load NeoCarta's structural duplicates — the same extract-then-bridge pattern used for APIs and documents. Ambiguous name pairs (same table+column name in two sources) are skipped, not guessed. Two payoffs, both covered by `get_join_path`:
+  - **Discovery of FK-less joins.** `get_join_path` traverses `OBSERVED_JOIN` alongside `REFERENCES`/`SAME_ENTITY`, so joins **no FK declares** become first-class. The shipped log includes a cross-database join — `financials.income_statement ⋈ org.headcount` on `fiscal_year` (revenue vs headcount by year) — which has **zero** REFERENCES edges anywhere yet is fully plannable via its `OBSERVED_JOIN` (see `test_query_log_indexer.py`).
+  - **Usage ranking.** `get_join_path` uses `allShortestPaths` and ranks equally-short paths by **total `OBSERVED_JOIN` weight**, so an empirically-travelled join wins over an FK-only guess of equal length.
+  Optional and non-fatal: ingest skips it when the log file is absent.
 - **Document pipeline:** `liteparse` (`LiteParse().parse(path).text` / `.pages`) → chunk → embed; LLM entity extraction (POLE+O) → entity layer + `MENTIONS` + provenance.
 - **LLM glossary:** `gpt-5.4-mini` generates `BusinessTerm` nodes + descriptions from schema; embedded.
 - **Embeddings:** OpenAI `text-embedding-3-small`.

@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     postgres_password: str = "neocarta"
 
     sqlite_dir: str = "data/seed"
+    # BigQuery-audit-log-shaped query log mined by NeoCarta's query_log connector to
+    # surface empirically-observed joins (OBSERVED_JOIN). Optional: ingest skips it
+    # when the file is absent.
+    query_log_file: str = "data/seed/query_log_sales.json"
 
     neo4j_uri: str = "bolt://localhost:7687"
     neo4j_user: str = "neo4j"

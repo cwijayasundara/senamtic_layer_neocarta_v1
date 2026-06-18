@@ -90,16 +90,57 @@ def load_entities(driver: Driver, chunk_id: str, entities: list[dict]) -> None:
         )
 
 
+# Tokens too generic or too short to anchor a bridge on their own.
+_BRIDGE_STOPWORDS = {"and", "the", "of", "for", "a", "an", "to", "in", "on", "at"}
+# A single-token value must be at least this long to bridge, so region/quarter codes
+# ('us', 'q1', 'ae') don't latch onto incidental tokens in document text.
+_MIN_BRIDGE_TOKEN = 4
+
+
+def _token_match(entity_norm: str, value_norm: str) -> bool:
+    """True when a catalog value names a thing the entity also names, by whole words.
+
+    A single-word value must appear as a full token in the entity (length-guarded,
+    no stopwords); a multi-word value must appear as a contiguous token run. Whole-word
+    matching avoids substring false positives ('india' inside 'indiana jones')."""
+    e_tokens = entity_norm.split()
+    v_tokens = value_norm.split()
+    if not e_tokens or not v_tokens:
+        return False
+    if len(v_tokens) == 1:
+        tok = v_tokens[0]
+        if len(tok) < _MIN_BRIDGE_TOKEN or tok in _BRIDGE_STOPWORDS:
+            return False
+        return tok in e_tokens
+    return any(
+        e_tokens[i:i + len(v_tokens)] == v_tokens
+        for i in range(len(e_tokens) - len(v_tokens) + 1)
+    )
+
+
 def bridge_entities_to_values(driver: Driver) -> int:
     """Link document Entities to catalog Values that name the same thing.
 
-    Returns the number of Entity-[:REFERS_TO]->Value edges after bridging."""
+    Bridges on exact norm equality plus whole-word token overlap (_token_match), so
+    'NVIDIA Blackwell GPUs' converges on the 'Blackwell' value. Returns the total number
+    of Entity-[:REFERS_TO]->Value edges after bridging."""
     with driver.session(database=settings.neo4j_database) as session:
+        entities = [r["norm"] for r in session.run("MATCH (e:Entity) RETURN DISTINCT e.norm AS norm")]
+        values = [r["norm"] for r in session.run("MATCH (v:Value) RETURN DISTINCT v.norm AS norm")]
+        pairs = [
+            {"e": en, "v": vn}
+            for en in entities for vn in values
+            if en == vn or _token_match(en, vn)
+        ]
+        if pairs:
+            session.run(
+                """
+                UNWIND $pairs AS pair
+                MATCH (e:Entity {norm: pair.e}), (v:Value {norm: pair.v})
+                MERGE (e)-[:REFERS_TO]->(v)
+                """,
+                pairs=pairs,
+            )
         return session.run(
-            """
-            MATCH (e:Entity), (v:Value) WHERE e.norm = v.norm
-            MERGE (e)-[:REFERS_TO]->(v)
-            WITH count(*) AS _
-            MATCH (:Entity)-[r:REFERS_TO]->(:Value) RETURN count(r) AS c
-            """
+            "MATCH (:Entity)-[r:REFERS_TO]->(:Value) RETURN count(r) AS c"
         ).single()["c"]
