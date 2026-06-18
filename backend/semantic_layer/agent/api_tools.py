@@ -6,9 +6,9 @@ from fastapi.testclient import TestClient
 from langchain_core.tools import tool
 
 from semantic_layer.apis.app import app
+from semantic_layer.config import settings
 
 _client = TestClient(app)
-_SOURCES = {"crm", "itsm", "partner", "dgx"}
 
 
 @tool
@@ -19,7 +19,7 @@ def call_api(source: str, path: str, params: dict | None = None) -> str:
     (e.g. '/tickets', '/accounts', '/inventory', '/usage'). params is an optional
     dict of query filters. Returns {status, data}. Use get_table_schema / the API's
     virtual tables to learn the available endpoints and fields."""
-    if source not in _SOURCES:
+    if source not in settings.api_source_list:
         return json.dumps({"status": 404, "error": f"unknown api source '{source}'"})
     resp = _client.get(f"/{source}{path}", params=params or {})
     try:

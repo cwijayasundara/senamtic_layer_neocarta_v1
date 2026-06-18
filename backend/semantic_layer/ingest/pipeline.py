@@ -43,7 +43,7 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
             extract_sqlite(str(sqlite_dir / "financials.db"), source="financials"),
             extract_sqlite(str(sqlite_dir / "org.db"), source="org"),
         ]
-        bundles += extract_all_apis(_api_spec_getter(), ("crm", "itsm", "partner", "dgx"))
+        bundles += extract_all_apis(_api_spec_getter(), settings.api_source_list)
         for b in bundles:
             load_bundle(driver, b)
         counts["sources"] = len(bundles)

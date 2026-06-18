@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     # renderable at thousands of documents (the structured layer is returned in full).
     graph_max_chunks: int = 300
 
+    # Enterprise APIs to register/serve (comma-separated). Adding an API is config, not
+    # code: list its name here and mount/serve its OpenAPI spec under /{name}.
+    api_sources: str = "crm,itsm,partner,dgx"
+
+    @property
+    def api_source_list(self) -> list[str]:
+        return [s.strip() for s in self.api_sources.split(",") if s.strip()]
+
     @property
     def postgres_dsn(self) -> str:
         return (
