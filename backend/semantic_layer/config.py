@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     schema_routing_k_ret: int = 20
     schema_routing_k_rank: int = 8
 
+    # Entity-extraction throughput: chunks per LLM call, and concurrent in-flight
+    # batches during ingest (replaces the old one-call-per-chunk serial loop).
+    entity_batch_size: int = 10
+    ingest_max_workers: int = 8
+
     @property
     def postgres_dsn(self) -> str:
         return (

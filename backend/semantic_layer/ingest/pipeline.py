@@ -4,11 +4,13 @@ Order: reset -> SQL metadata -> API metadata -> documents -> entities ->
 glossary bridge -> embeddings.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from semantic_layer.config import settings
+from semantic_layer.ingest.entities import extract_entities_batch
 from semantic_layer.graph.client import get_driver, reset_graph
 from semantic_layer.apis.app import app
 from semantic_layer.ingest.sql_extractor import extract_postgres, extract_sqlite
@@ -75,8 +77,28 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
         driver.close()
 
 
+def extract_entities_for_chunks(chunk_rows: list[dict]) -> dict[str, list[dict]]:
+    """Map chunk id -> entities, running entity_batch_size-sized batches concurrently.
+
+    Replaces the previous one-LLM-call-per-chunk serial loop. Each batch is one LLM
+    call; batches run across ingest_max_workers threads."""
+    size = max(1, settings.entity_batch_size)
+    batches = [chunk_rows[i:i + size] for i in range(0, len(chunk_rows), size)]
+    if not batches:
+        return {}
+
+    def run(batch: list[dict]) -> dict[str, list[dict]]:
+        groups = extract_entities_batch([r["text"] for r in batch])
+        return {r["id"]: ents for r, ents in zip(batch, groups)}
+
+    out: dict[str, list[dict]] = {}
+    with ThreadPoolExecutor(max_workers=settings.ingest_max_workers) as pool:
+        for partial in pool.map(run, batches):
+            out.update(partial)
+    return out
+
+
 def _run_llm_stages(driver, bundles) -> None:
-    from semantic_layer.ingest.entities import extract_entities
     from semantic_layer.ingest.glossary import generate_business_terms, load_business_terms
     from semantic_layer.ingest.doc_graph import load_entities, bridge_entities_to_values
     from semantic_layer.ingest.embeddings import embed_chunks, embed_metadata_nodes
@@ -92,8 +114,9 @@ def _run_llm_stages(driver, bundles) -> None:
         chunk_rows = session.run(
             "MATCH (c:Chunk) RETURN c.id AS id, c.text AS text ORDER BY c.id"
         ).data()
-    for row in chunk_rows:
-        load_entities(driver, row["id"], extract_entities(row["text"]))
+    entities_by_chunk = extract_entities_for_chunks(chunk_rows)
+    for chunk_id, ents in entities_by_chunk.items():
+        load_entities(driver, chunk_id, ents)
     # Bridge document entities to the canonical value layer (Entity -> Value).
     bridge_entities_to_values(driver)
 
