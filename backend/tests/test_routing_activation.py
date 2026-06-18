@@ -36,3 +36,25 @@ def test_routing_off_is_unchanged(monkeypatch):
     plan = build_plan(Intent(group_by=["segment", "region"], needs_sql=True))
     targets = {jt["table_id"] for jt in plan["sql_legs"][0]["join_targets"]}
     assert targets == {"table:sales_pg.sales.segment", "table:sales_pg.sales.region"}
+
+
+from semantic_layer.eval import compare as compare_mod
+from semantic_layer.eval.compare import compare_routing
+
+
+def test_compare_routing_runs_both_modes_and_restores(monkeypatch):
+    monkeypatch.setattr(compare_mod.settings, "schema_routing_enabled", False, raising=False)
+    seen = []
+
+    def fake_run(evalset):
+        seen.append(compare_mod.settings.schema_routing_enabled)
+        # mean depends on the flag so we can tell the modes apart
+        return {"results": [], "mean_score": 4.0 if compare_mod.settings.schema_routing_enabled else 3.0,
+                "pass_rate": 1.0}
+
+    out = compare_routing([{"id": "x", "question": "q", "expect": "e"}], run_fn=fake_run)
+    assert seen == [False, True]                       # ran OFF then ON
+    assert out["off"]["mean_score"] == 3.0
+    assert out["on"]["mean_score"] == 4.0
+    assert out["delta_mean"] == 1.0                    # on - off
+    assert compare_mod.settings.schema_routing_enabled is False   # restored
