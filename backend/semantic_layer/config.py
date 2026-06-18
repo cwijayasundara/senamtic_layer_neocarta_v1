@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     schema_routing_enabled: bool = False
     schema_routing_k_ret: int = 20
     schema_routing_k_rank: int = 8
+    # When routing is enabled, cap the sales-leg join targets to this many routed
+    # tables so a large catalog yields a bounded join (not a whole-schema scan).
+    schema_routing_max_targets: int = 8
 
     # Entity-extraction throughput: chunks per LLM call, and concurrent in-flight
     # batches during ingest (replaces the old one-call-per-chunk serial loop).

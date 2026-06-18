@@ -187,8 +187,13 @@ def build_plan(intent: "Intent", question: str | None = None) -> dict:
     sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
     dim_targets = _dimension_targets(intent.group_by) if intent.needs_sql else []
     routed_sales = [t for t in routed_tables if t.startswith("table:sales_pg.sales.")]
-    # A sales leg is warranted by filter values, group-by dimensions, OR routed tables.
     sales_target_ids = [r["table_id"] for r in sales_dims] + dim_targets + routed_sales
+    # When routing is on, BOUND the join to the routed top-K so a large catalog yields a
+    # bounded join rather than a whole-schema scan; preserve order, de-dupe, then cap.
+    if settings.schema_routing_enabled and routed_sales:
+        routed_set = set(routed_sales)
+        bounded = [t for t in dict.fromkeys(sales_target_ids) if t in routed_set]
+        sales_target_ids = bounded[: settings.schema_routing_max_targets]
     if sales_target_ids:
         sql_legs.append({
             "source": "sales_pg",
