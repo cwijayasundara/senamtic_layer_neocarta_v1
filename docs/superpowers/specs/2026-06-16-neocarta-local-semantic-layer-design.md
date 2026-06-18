@@ -171,3 +171,28 @@ sementic_layer_neocarta_v1/
 - Real (non-mock) external APIs or live SaaS connectors.
 - Authentication / multi-tenant concerns.
 - Production deployment (local-only).
+
+## 14. Caching (production scaling, P0)
+
+A query cache sits in front of `answer_stream` so repeated or near-identical
+questions skip re-running intent extraction, legs, and synthesis. See the plan
+`docs/superpowers/plans/2026-06-18-production-scaling-p0.md` (Feature C).
+
+- **Implemented (default):** an in-process `QueryCache` (`semantic_layer/agent/cache.py`)
+  with exact-match (normalized question) plus semantic (embedding-cosine) lookup,
+  LRU-bounded with TTL. Gated on `settings.query_cache_enabled`; tunables
+  `cache_max_entries`, `cache_ttl_seconds`, `cache_similarity_threshold`.
+- **Single-worker only.** The in-process cache is **per-process**: it is not
+  shared across uvicorn workers or replicas. Two workers keep independent caches,
+  so a hit rate degrades under horizontal scaling and entries are never
+  cross-invalidated.
+- **Production path — `RedisQueryCache` (follow-up, not yet built).** For
+  multi-worker / multi-replica deploys, add a Redis-backed implementation of the
+  same `get_exact` / `get_semantic` / `put` interface, keyed by normalized
+  question. Semantic lookup should be backed by a **Redis vector index
+  (RediSearch)** rather than the in-process linear scan, so similarity search
+  stays sub-linear as the cache grows.
+- **Selection.** Gate the backend behind a `cache_backend: str = "memory" | "redis"`
+  setting plus a `redis_url`; default `"memory"`. Add `redis>=5` as an optional
+  `pyproject.toml` extra only when the Redis backend is implemented (YAGNI until a
+  multi-worker deploy is real).
