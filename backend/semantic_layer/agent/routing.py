@@ -7,6 +7,7 @@ import json
 
 from pydantic import BaseModel, Field
 
+from semantic_layer.agent.driver import driver
 from semantic_layer.agent.graph_tools import search_catalog
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_chat_model
@@ -70,3 +71,27 @@ def route_tables(question: str, k_ret: int = 20, k_rank: int = 8) -> list[str]:
     """Retrieve high-recall candidates, then LLM-rank to a precise ordered set."""
     candidates = retrieve_candidate_tables(question, k_ret=k_ret)
     return rank_tables(question, candidates, k_rank=k_rank)
+
+
+_FACT_RANK_CYPHER = """
+UNWIND $tables AS tid
+MATCH (t:Table {id: tid})
+WHERE tid STARTS WITH 'table:sales_pg.sales.'
+OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)
+WITH t, tid, count(*) AS fks
+OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(:Table)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(t2:Table)
+WITH tid, fks, count(DISTINCT t2) AS depth2
+RETURN tid ORDER BY fks DESC, depth2 DESC, tid LIMIT 1
+"""
+
+
+def select_fact_table(routed_tables: list[str]) -> str | None:
+    """Pick the SQL fact table from a routed set: the sales-schema table with the
+    most foreign keys (the hub of the star). Returns None when none qualify."""
+    sales = [t for t in routed_tables if t.startswith("table:sales_pg.sales.")]
+    if not sales:
+        return None
+    recs = driver().execute_query(
+        _FACT_RANK_CYPHER, tables=sales, database_=settings.neo4j_database,
+    ).records
+    return recs[0]["tid"] if recs else None
