@@ -53,7 +53,7 @@ def _synthesize(question: str, sql_runs, api_calls, doc, correlations) -> str:
 def answer_stream(question: str) -> Iterator[dict]:
     try:
         intent = extract_intent(question)
-        plan = build_plan(intent)
+        plan = build_plan(intent, question=question)
         yield {"type": "tool_result", "scope": "plan", "name": "plan_query",
                "content": json.dumps({k: plan[k] for k in ("highlight",) if k in plan})[:4000]}
 

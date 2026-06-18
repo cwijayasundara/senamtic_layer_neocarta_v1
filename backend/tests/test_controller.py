@@ -10,12 +10,13 @@ def test_answer_stream_runs_stages_and_emits_answer(monkeypatch):
     monkeypatch.setattr(ctrl, "extract_intent",
                         lambda q: Intent(terms=["Data Center"], needs_sql=True, needs_doc=True,
                                          doc_query="dc growth"))
-    monkeypatch.setattr(ctrl, "build_plan", lambda intent: {
+    monkeypatch.setattr(ctrl, "build_plan", lambda intent, **kwargs: {
         "resolved_values": [], "highlight": ["table:sales_pg.sales.segment", "doc:x"],
         "sql_legs": [{"source": "sales_pg", "fact_table": "table:sales_pg.sales.order_line",
                       "join_targets": [], "filters": [], "scope": {}}],
         "doc_leg": {"doc_query": "dc growth", "candidate_doc_ids": ["doc:x"], "periods": []},
         "api_correlations": [],
+        "routed_tables": [],
     })
     monkeypatch.setattr(ctrl, "run_sql_leg", lambda leg: {
         "source": "sales_pg", "sql": "SELECT 1", "columns": ["n"], "rows": [[60400000000]],

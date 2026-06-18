@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from semantic_layer.agent.driver import driver
 from semantic_layer.agent.graph_tools import get_join_path
+from semantic_layer.agent.routing import route_tables
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.ingest.value_indexer import norm
@@ -150,9 +151,18 @@ def _dimension_targets(group_by: list[str]) -> list[str]:
     return list(dict.fromkeys(out))
 
 
-def build_plan(intent: "Intent") -> dict:
-    """Deterministic graph planning. No LLM. Returns a JSON-serializable Plan dict."""
+def build_plan(intent: "Intent", question: str | None = None) -> dict:
+    """Deterministic graph planning. No LLM unless schema routing is enabled.
+    Returns a JSON-serializable Plan dict."""
     resolved = _resolve_values(intent.terms)
+
+    # Optional retrieve-then-rank routing: only sales-schema tables are foldable
+    # into the deterministic sales leg here; other routed ids are still surfaced.
+    routed_tables: list[str] = []
+    if settings.schema_routing_enabled and question:
+        routed_tables = route_tables(
+            question, k_ret=settings.schema_routing_k_ret,
+            k_rank=settings.schema_routing_k_rank)
 
     # Document context first, so a question with no explicit period can scope SQL to the
     # period the cited press release reports ("compare with the latest release").
@@ -172,8 +182,9 @@ def build_plan(intent: "Intent") -> dict:
     sql_legs = []
     sales_dims = [r for r in resolved if r["source"] == "sales_pg"]
     dim_targets = _dimension_targets(intent.group_by) if intent.needs_sql else []
-    # A sales leg is warranted by either filter values OR group-by dimensions (aggregation).
-    sales_target_ids = [r["table_id"] for r in sales_dims] + dim_targets
+    routed_sales = [t for t in routed_tables if t.startswith("table:sales_pg.sales.")]
+    # A sales leg is warranted by filter values, group-by dimensions, OR routed tables.
+    sales_target_ids = [r["table_id"] for r in sales_dims] + dim_targets + routed_sales
     if sales_target_ids:
         sql_legs.append({
             "source": "sales_pg",
@@ -200,6 +211,7 @@ def build_plan(intent: "Intent") -> dict:
         *(r["table_id"] for r in resolved),
         *(t for leg in sql_legs for jt in leg["join_targets"] for t in jt["tables"]),
         *(doc_leg["candidate_doc_ids"] if doc_leg else []),
+        *routed_tables,
     })
 
     return {
@@ -208,4 +220,5 @@ def build_plan(intent: "Intent") -> dict:
         "doc_leg": doc_leg,
         "api_correlations": api_correlations,
         "highlight": highlight,
+        "routed_tables": routed_tables,
     }

@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # default 25; otherwise the run raises GraphRecursionError partway through.
     agent_recursion_limit: int = 100
 
+    # Schema routing: retrieve-then-rank table selection for many-table scale.
+    # Off by default so the deterministic sales planner and golden tests are
+    # unchanged; turn on once the catalog grows past a handful of tables.
+    schema_routing_enabled: bool = False
+    schema_routing_k_ret: int = 20
+    schema_routing_k_rank: int = 8
+
     @property
     def postgres_dsn(self) -> str:
         return (
