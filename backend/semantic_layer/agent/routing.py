@@ -77,8 +77,8 @@ _FACT_RANK_CYPHER = """
 UNWIND $tables AS tid
 MATCH (t:Table {id: tid})
 WHERE tid STARTS WITH 'table:sales_pg.sales.'
-OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)
-WITH t, tid, count(*) AS fks
+OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(ref:Column)
+WITH t, tid, count(ref) AS fks
 OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(:Table)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(t2:Table)
 WITH tid, fks, count(DISTINCT t2) AS depth2
 RETURN tid ORDER BY fks DESC, depth2 DESC, tid LIMIT 1
@@ -87,7 +87,8 @@ RETURN tid ORDER BY fks DESC, depth2 DESC, tid LIMIT 1
 
 def select_fact_table(routed_tables: list[str]) -> str | None:
     """Pick the SQL fact table from a routed set: the sales-schema table with the
-    most foreign keys (the hub of the star). Returns None when none qualify."""
+    most direct foreign keys, tie-broken by reach at depth 2 (distinct tables
+    reachable via two FK hops). Returns None when none qualify."""
     sales = [t for t in routed_tables if t.startswith("table:sales_pg.sales.")]
     if not sales:
         return None
