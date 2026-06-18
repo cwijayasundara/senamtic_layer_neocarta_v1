@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from semantic_layer.agent.driver import driver
 from semantic_layer.agent.graph_tools import get_join_path
-from semantic_layer.agent.routing import route_tables
+from semantic_layer.agent.routing import route_tables, select_fact_table
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.ingest.value_indexer import norm
@@ -164,6 +164,10 @@ def build_plan(intent: "Intent", question: str | None = None) -> dict:
             question, k_ret=settings.schema_routing_k_ret,
             k_rank=settings.schema_routing_k_rank)
 
+    fact_table = _SALES_FACT
+    if routed_tables:
+        fact_table = select_fact_table(routed_tables) or _SALES_FACT
+
     # Document context first, so a question with no explicit period can scope SQL to the
     # period the cited press release reports ("compare with the latest release").
     doc_leg = None
@@ -188,8 +192,8 @@ def build_plan(intent: "Intent", question: str | None = None) -> dict:
     if sales_target_ids:
         sql_legs.append({
             "source": "sales_pg",
-            "fact_table": _SALES_FACT,
-            "join_targets": _join_targets(_SALES_FACT, sales_target_ids),
+            "fact_table": fact_table,
+            "join_targets": _join_targets(fact_table, sales_target_ids),
             "filters": [{"table_id": r["table_id"], "column": r["column"], "value": r["exact"]}
                         for r in sales_dims],
             "group_by": list(intent.group_by) if dim_targets else [],
