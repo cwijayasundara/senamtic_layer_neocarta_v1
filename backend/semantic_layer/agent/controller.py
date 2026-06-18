@@ -13,6 +13,7 @@ from semantic_layer.agent.legs import run_sql_leg, run_api_leg, run_doc_leg
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.config import settings
 from semantic_layer.web.grounding import check_numeric_grounding
+from semantic_layer.agent.cache import query_cache
 
 _SYNTH_PROMPT = (
     "Synthesize a concise answer from the leg results below. State which source(s) each "
@@ -51,6 +52,11 @@ def _synthesize(question: str, sql_runs, api_calls, doc, correlations) -> str:
 
 
 def answer_stream(question: str) -> Iterator[dict]:
+    if settings.query_cache_enabled:
+        cached = query_cache.get_exact(question)
+        if cached is not None:
+            yield {**cached, "cached": True}
+            return
     try:
         intent = extract_intent(question)
         plan = build_plan(intent, question=question)
@@ -99,6 +105,9 @@ def answer_stream(question: str) -> Iterator[dict]:
                "highlight": [], "sql_runs": [], "api_calls": [], "doc_citations": [], "caveats": []}
         return
 
-    yield {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
-           "sql_runs": sql_runs, "api_calls": api_calls,
-           "doc_citations": doc_citations, "caveats": caveats}
+    answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
+                    "sql_runs": sql_runs, "api_calls": api_calls,
+                    "doc_citations": doc_citations, "caveats": caveats}
+    if settings.query_cache_enabled:
+        query_cache.put(question, answer_event)
+    yield answer_event

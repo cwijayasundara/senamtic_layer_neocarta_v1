@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     entity_batch_size: int = 10
     ingest_max_workers: int = 8
 
+    # Query cache: exact-match + semantic (embedding cosine) lookup in front of the
+    # agent, to skip re-running legs/synthesis for repeated or near-identical asks.
+    query_cache_enabled: bool = True
+    cache_max_entries: int = 512
+    cache_ttl_seconds: int = 3600
+    cache_similarity_threshold: float = 0.95
+
     @property
     def postgres_dsn(self) -> str:
         return (
