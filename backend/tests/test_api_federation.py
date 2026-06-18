@@ -55,3 +55,39 @@ def test_run_api_leg_uses_routed_endpoints(monkeypatch):
     assert out["calls"][0]["path"] == "/tickets"
     # the routed endpoint was injected into the prompt the model saw
     assert "/tickets" in captured["human"]
+
+
+def test_api_leg_federates_past_demo_apis_and_drops_static_list(monkeypatch):
+    """A routed endpoint from a NON-default API reaches the model, and the system
+    prompt no longer pins the four demo APIs (the routed catalog is authoritative)."""
+    from semantic_layer.agent import legs as legs_mod
+
+    # The static enumeration must be gone from the system prompt.
+    assert "/accounts" not in legs_mod._API_LEG_PROMPT
+    assert "dgx (/usage)" not in legs_mod._API_LEG_PROMPT
+
+    monkeypatch.setattr(legs_mod, "route_api_endpoints",
+                        lambda intents, limit=12: [{"source": "billing", "path": "/invoices",
+                                                    "summary": "List customer invoices"}])
+    plan_calls = legs_mod._ApiCalls(calls=[
+        legs_mod._ApiCall(source="billing", path="/invoices", params={})])
+    captured = {}
+
+    class _FakeStructured:
+        def invoke(self, messages):
+            captured["system"] = messages[0][1]
+            captured["human"] = messages[-1][1]
+            return plan_calls
+
+    class _FakeModel:
+        def with_structured_output(self, _schema, **_kw):
+            return _FakeStructured()
+
+    monkeypatch.setattr(legs_mod, "get_chat_model", lambda model=None: _FakeModel())
+    monkeypatch.setattr(legs_mod, "call_api", type("T", (), {
+        "invoke": staticmethod(lambda _a: __import__("json").dumps({"status": 200, "data": [{"id": 1}]}))})())
+    out = legs_mod.run_api_leg(["customer invoices"])
+    assert out["error"] is None
+    # the federated (non-demo) endpoint reached the model via the routed catalog
+    assert "billing" in captured["human"] and "/invoices" in captured["human"]
+    assert out["calls"][0]["source"] == "billing"

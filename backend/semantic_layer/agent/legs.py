@@ -97,9 +97,9 @@ class _ApiCalls(BaseModel):
 _API_LEG_PROMPT = (
     "Pick the mock-API calls that answer the given lookups. Make at least one call for "
     "EACH lookup listed (e.g. DGX usage AND open tickets are two separate calls). "
-    "Sources & endpoints: crm (/accounts,/contacts,/opportunities), itsm (/tickets,/rma), "
-    "partner (/partners,/inventory), dgx (/usage). Use query params to filter "
-    "(e.g. {'status':'open'} for open tickets). Return the list of calls to make."
+    "Choose ONLY from the relevant endpoints listed in the human message (each is "
+    "'<source> <path> — <summary>'); use the source and path exactly as given. Use query "
+    "params to filter (e.g. {'status':'open'} for open tickets). Return the list of calls to make."
 )
 
 
