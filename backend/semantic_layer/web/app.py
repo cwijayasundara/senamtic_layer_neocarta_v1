@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 from semantic_layer.web.graph_api import get_sources, get_schema_graph
 from semantic_layer.web.events import stream_chat_events
 from semantic_layer.agent.pg_pool import ensure_pool_open, get_pool
+from semantic_layer.config import settings
 
 
 @asynccontextmanager
@@ -38,7 +39,11 @@ def sources():
 
 @app.get("/graph")
 def graph(source: str | None = None, max_chunks: int | None = None):
-    return get_schema_graph(source=source, max_chunks=max_chunks)
+    # Clamp a caller-supplied cap to [0, server default] so a request can only NARROW
+    # the chunk layer, never exceed the server bound (resource-exhaustion guard) or go
+    # negative (which would error the underlying LIMIT).
+    effective = max(0, min(max_chunks, settings.graph_max_chunks)) if max_chunks is not None else None
+    return get_schema_graph(source=source, max_chunks=effective)
 
 
 class ChatRequest(BaseModel):

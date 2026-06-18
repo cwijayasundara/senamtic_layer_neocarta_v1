@@ -40,3 +40,21 @@ def test_graph_endpoint_forwards_query_params(monkeypatch):
     r = client.get("/graph", params={"source": "sales_pg", "max_chunks": 50})
     assert r.status_code == 200
     assert captured == {"source": "sales_pg", "max_chunks": 50}
+
+
+def test_graph_endpoint_clamps_max_chunks_to_server_cap(monkeypatch):
+    from fastapi.testclient import TestClient
+    from semantic_layer.web import app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "graph_max_chunks", 300, raising=False)
+    captured = {}
+    monkeypatch.setattr(app_mod, "get_schema_graph",
+                        lambda source=None, max_chunks=None: captured.update(max_chunks=max_chunks)
+                        or {"nodes": [], "edges": [], "truncated": False})
+    client = TestClient(app_mod.app)
+    client.get("/graph", params={"max_chunks": 10_000_000})   # above the cap -> clamped down
+    assert captured["max_chunks"] == 300
+    client.get("/graph", params={"max_chunks": -5})            # negative -> clamped to 0
+    assert captured["max_chunks"] == 0
+    client.get("/graph", params={"max_chunks": 50})            # below the cap -> unchanged
+    assert captured["max_chunks"] == 50
