@@ -55,3 +55,45 @@ def test_select_fact_table_picks_order_line(ingested_graph):
     assert result == "table:sales_pg.sales.order_line"
     # Explicitly confirm customer (equal direct FKs, alphabetically earlier) did not win.
     assert result != "table:sales_pg.sales.customer"
+
+
+@pytest.mark.neo4j
+def test_select_fact_table_depth2_excludes_self_reference(ingested_graph):
+    # Build two sales-schema probe tables that BOTH have 1 direct FK.
+    # selfy: FK to mid1; mid1 has a FK back to selfy (circular).
+    #   Without the t2<>t guard selfy has depth2=1 (reaches itself) and wins over reachy.
+    #   With the guard the self-loop is excluded, selfy.depth2=0, and reachy wins.
+    # reachy: FK to mid2 (isolated; mid2 has no outgoing FKs) => depth2=0 in both cases.
+    with ingested_graph.session() as s:
+        s.run(
+            """
+            MERGE (selfy:Table {id:'table:sales_pg.sales._probe_selfy'})
+            MERGE (reachy:Table {id:'table:sales_pg.sales._probe_reachy'})
+            MERGE (mid1:Table {id:'table:sales_pg.sales._probe_mid1'})
+            MERGE (mid2:Table {id:'table:sales_pg.sales._probe_mid2'})
+            // selfy: 1 FK to mid1
+            MERGE (selfy)-[:HAS_COLUMN]->(cs1:Column {id:'col:_p.selfy.fk_mid1'})
+            MERGE (mid1)-[:HAS_COLUMN]->(cm1pk:Column {id:'col:_p.mid1.pk'})
+            MERGE (cs1)-[:REFERENCES]->(cm1pk)
+            // selfy has a PK column
+            MERGE (selfy)-[:HAS_COLUMN]->(csp:Column {id:'col:_p.selfy.pk'})
+            // mid1 has a FK back to selfy (creates circular depth-2 path for selfy)
+            MERGE (mid1)-[:HAS_COLUMN]->(cm1fk:Column {id:'col:_p.mid1.fk_selfy'})
+            MERGE (cm1fk)-[:REFERENCES]->(csp)
+            // reachy: 1 FK to mid2 (mid2 has no outgoing FKs => reachy.depth2=0)
+            MERGE (reachy)-[:HAS_COLUMN]->(cr1:Column {id:'col:_p.reachy.fk_mid2'})
+            MERGE (mid2)-[:HAS_COLUMN]->(cm2pk:Column {id:'col:_p.mid2.pk'})
+            MERGE (cr1)-[:REFERENCES]->(cm2pk)
+            """
+        )
+    try:
+        result = routing.select_fact_table([
+            "table:sales_pg.sales._probe_selfy", "table:sales_pg.sales._probe_reachy"])
+        # Without guard: selfy.depth2=1 (self-loop via mid1) > reachy.depth2=0 => selfy wins.
+        # With guard (t2<>t): selfy.depth2=0 = reachy.depth2=0, tie broken by tid ASC => reachy wins.
+        assert result == "table:sales_pg.sales._probe_reachy"
+    finally:
+        with ingested_graph.session() as s:
+            s.run(
+                "MATCH (t:Table) WHERE t.id STARTS WITH 'table:sales_pg.sales._probe_' "
+                "OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c) DETACH DELETE t, c")

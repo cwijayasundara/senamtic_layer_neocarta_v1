@@ -80,6 +80,7 @@ WHERE tid STARTS WITH 'table:sales_pg.sales.'
 OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(ref:Column)
 WITH t, tid, count(ref) AS fks
 OPTIONAL MATCH (t)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(:Table)-[:HAS_COLUMN]->(:Column)-[:REFERENCES]->(:Column)<-[:HAS_COLUMN]-(t2:Table)
+WHERE t2 <> t
 WITH tid, fks, count(DISTINCT t2) AS depth2
 RETURN tid ORDER BY fks DESC, depth2 DESC, tid LIMIT 1
 """
