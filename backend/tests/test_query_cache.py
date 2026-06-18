@@ -58,3 +58,26 @@ def test_answer_stream_serves_exact_cache_hit(monkeypatch):
     assert second[-1]["type"] == "answer"
     assert second[-1]["content"] == "cached-me"
     assert calls["intent"] == 1                                # legs NOT re-run on hit
+
+
+def test_answer_stream_serves_semantic_hit(monkeypatch):
+    fresh = cache_mod.QueryCache(max_entries=10, ttl_seconds=1000)
+    monkeypatch.setattr(ctrl, "query_cache", fresh)
+    monkeypatch.setattr(ctrl.settings, "query_cache_enabled", True, raising=False)
+    monkeypatch.setattr(ctrl.settings, "cache_similarity_threshold", 0.9, raising=False)
+    # Deterministic embeddings: near-identical vectors for paraphrases.
+    embeds = {
+        "what was total revenue": [1.0, 0.0, 0.0],
+        "what is the total revenue": [0.98, 0.02, 0.0],
+    }
+    monkeypatch.setattr(ctrl, "embed_query", lambda q: embeds[cache_mod._normalize(q)])
+    monkeypatch.setattr(ctrl, "extract_intent", lambda q: Intent())
+    monkeypatch.setattr(ctrl, "build_plan", lambda intent, question=None: {
+        "highlight": [], "sql_legs": [], "doc_leg": None, "api_correlations": []})
+    monkeypatch.setattr(ctrl, "_synthesize", lambda *a, **k: "revenue-answer")
+    monkeypatch.setattr(ctrl, "check_numeric_grounding", lambda *a, **k: [])
+
+    list(ctrl.answer_stream("What was total revenue"))           # populate
+    out = list(ctrl.answer_stream("What is the total revenue"))  # paraphrase -> semantic hit
+    assert out[-1]["content"] == "revenue-answer"
+    assert out[-1].get("cached") is True

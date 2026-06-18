@@ -13,7 +13,7 @@ from semantic_layer.agent.legs import run_sql_leg, run_api_leg, run_doc_leg
 from semantic_layer.ingest.llm import get_chat_model
 from semantic_layer.config import settings
 from semantic_layer.web.grounding import check_numeric_grounding
-from semantic_layer.agent.cache import query_cache
+from semantic_layer.agent.cache import query_cache, embed_query
 
 _SYNTH_PROMPT = (
     "Synthesize a concise answer from the leg results below. State which source(s) each "
@@ -52,8 +52,15 @@ def _synthesize(question: str, sql_runs, api_calls, doc, correlations) -> str:
 
 
 def answer_stream(question: str) -> Iterator[dict]:
+    q_embedding = None
     if settings.query_cache_enabled:
         cached = query_cache.get_exact(question)
+        if cached is None:
+            try:
+                q_embedding = embed_query(question)
+                cached = query_cache.get_semantic(q_embedding, settings.cache_similarity_threshold)
+            except Exception:  # noqa: BLE001 — a cache miss must never block answering
+                q_embedding = None
         if cached is not None:
             yield {**cached, "cached": True}
             return
@@ -109,5 +116,5 @@ def answer_stream(question: str) -> Iterator[dict]:
                     "sql_runs": sql_runs, "api_calls": api_calls,
                     "doc_citations": doc_citations, "caveats": caveats}
     if settings.query_cache_enabled:
-        query_cache.put(question, answer_event)
+        query_cache.put(question, answer_event, embedding=q_embedding)
     yield answer_event

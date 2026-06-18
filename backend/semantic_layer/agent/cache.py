@@ -6,6 +6,7 @@ import time
 from collections import OrderedDict
 
 from semantic_layer.config import settings
+from semantic_layer.ingest.llm import get_openai_client
 
 
 def _normalize(question: str) -> str:
@@ -44,7 +45,7 @@ class QueryCache:
         return entry["answer"]
 
     def get_semantic(self, embedding: list[float], threshold: float) -> dict | None:
-        best, best_sim = None, threshold
+        best, best_sim, best_key = None, threshold, None
         for key, entry in list(self._store.items()):
             if not self._fresh(entry):
                 self._store.pop(key, None)
@@ -54,7 +55,9 @@ class QueryCache:
                 continue
             sim = cosine(embedding, emb)
             if sim >= best_sim:
-                best, best_sim = entry, sim
+                best, best_sim, best_key = entry, sim, key
+        if best_key is not None:
+            self._store.move_to_end(best_key)  # promote winner to MRU position
         return best["answer"] if best else None
 
     def put(self, question: str, answer: dict, embedding: list[float] | None = None) -> None:
@@ -63,6 +66,17 @@ class QueryCache:
         self._store.move_to_end(key)
         while len(self._store) > self._max:
             self._store.popitem(last=False)   # evict oldest
+
+
+def embed_query(question: str) -> list[float]:
+    """Embed a question with the configured embedding model for semantic cache lookup."""
+    client = get_openai_client()
+    resp = client.embeddings.create(
+        model=settings.embedding_model,
+        input=[question],
+        dimensions=settings.embedding_dimensions,
+    )
+    return resp.data[0].embedding
 
 
 query_cache = QueryCache(settings.cache_max_entries, settings.cache_ttl_seconds)
