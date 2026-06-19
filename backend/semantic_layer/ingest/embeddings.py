@@ -100,6 +100,66 @@ def _ensure_chunk_vector_index(driver: Driver) -> None:
         )
 
 
+def _table_embed_text(name: str, cols: list[str]) -> str:
+    """Text embedded per table: its name plus column names — the discriminating
+    signal we have (introspected tables carry no description)."""
+    if cols:
+        return f"{name} — columns: {', '.join(cols)}"
+    return name
+
+
+def embed_tables(driver: Driver, batch: int = 64) -> None:
+    """Embed each Table from its name + column names into Table.embedding and ensure
+    the `table_embeddings` vector index exists.
+
+    Always real (unlike embed_chunks it ignores fake_embeddings): schema routing
+    retrieves over these vectors, so they must carry real semantics."""
+    client = get_openai_client()
+    with driver.session(database=settings.neo4j_database) as session:
+        rows = session.run(
+            """
+            MATCH (t:Table)
+            OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+            WITH t, collect(c.name) AS cols
+            RETURN t.id AS id, t.name AS name, cols
+            """
+        ).data()
+        for i in range(0, len(rows), batch):
+            window = rows[i:i + batch]
+            texts = [_table_embed_text(r["name"], r["cols"]) for r in window]
+            vectors = client.embeddings.create(
+                model=settings.embedding_model, input=texts,
+                dimensions=settings.embedding_dimensions,
+            ).data
+            session.run(
+                """
+                UNWIND $rows AS row
+                MATCH (t:Table {id: row.id})
+                CALL db.create.setNodeVectorProperty(t, 'embedding', row.vec)
+                """,
+                rows=[{"id": w["id"], "vec": v.embedding} for w, v in zip(window, vectors)],
+            )
+    _ensure_table_vector_index(driver)
+
+
+def _ensure_table_vector_index(driver: Driver) -> None:
+    """Create a vector index named `table_embeddings` on Table.embedding — a stable
+    name we own (mirroring `chunk_embeddings`). Drop any NeoCarta-named index on the
+    same property first to avoid a duplicate-index error."""
+    with driver.session(database=settings.neo4j_database) as session:
+        session.run("DROP INDEX table_vector_index IF EXISTS")
+        session.run(
+            f"""
+            CREATE VECTOR INDEX table_embeddings IF NOT EXISTS
+            FOR (t:Table) ON (t.embedding)
+            OPTIONS {{indexConfig: {{
+              `vector.dimensions`: {settings.embedding_dimensions},
+              `vector.similarity_function`: 'cosine'
+            }}}}
+            """
+        )
+
+
 def embed_metadata_nodes(driver: Driver) -> None:
     """Embed Table/Column/BusinessTerm nodes via NeoCarta's OpenAI connector."""
     if settings.fake_embeddings:
