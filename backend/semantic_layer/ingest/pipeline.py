@@ -43,12 +43,17 @@ def _scale_bundles() -> list:
         n_apis=settings.scale_n_apis,
     )
     schemas = sorted({t.schema for t in catalog.tables})
-    bundles = [
+    pg_bundles = [
         extract_postgres(settings.postgres_dsn, source="scale", schema_name=s)
         for s in schemas
     ]
-    bundles += extract_synthetic_apis(catalog)
-    return bundles
+    if sum(len(b.tables) for b in pg_bundles) == 0:
+        print(
+            "WARNING: scale_mode is on but no scale_* distractor tables were found "
+            "in Postgres. Run `make scale-seed` before `make scale-ingest`, or the "
+            "scale test runs against an empty distractor catalog."
+        )
+    return pg_bundles + extract_synthetic_apis(catalog)
 
 
 def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:

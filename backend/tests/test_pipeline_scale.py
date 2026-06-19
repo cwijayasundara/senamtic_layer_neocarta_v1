@@ -25,3 +25,14 @@ def test_scale_bundles_built_when_enabled(monkeypatch):
     assert len(captured["schemas"]) >= 1
     assert all(s.startswith("scale_") for s in captured["schemas"])
     assert len(bundles) == len(captured["schemas"]) + 3
+
+
+def test_scale_bundles_warns_when_no_distractor_tables(monkeypatch, capsys):
+    monkeypatch.setattr(pipeline.settings, "scale_mode", True)
+    monkeypatch.setattr(pipeline.settings, "scale_n_tables", 12)
+    monkeypatch.setattr(pipeline.settings, "scale_n_apis", 2)
+    from semantic_layer.ingest.sql_extractor import SchemaBundle
+    monkeypatch.setattr(pipeline, "extract_postgres", lambda *a, **k: SchemaBundle())
+    pipeline._scale_bundles()
+    out = capsys.readouterr().out
+    assert "WARNING" in out and "scale-seed" in out

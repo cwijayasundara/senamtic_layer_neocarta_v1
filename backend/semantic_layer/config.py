@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -105,6 +106,14 @@ class Settings(BaseSettings):
     # Per-client requests/minute on /chat (keyed by API key, else client IP).
     # 0 disables rate limiting (dev default).
     rate_limit_per_min: int = 0
+
+    @model_validator(mode="after")
+    def _scale_enables_routing(self):
+        # The scale harness is meaningless without routing (an undifferentiated
+        # 1000-table catalog), so scale_mode implies schema_routing_enabled.
+        if self.scale_mode and not self.schema_routing_enabled:
+            self.schema_routing_enabled = True
+        return self
 
     @property
     def api_source_list(self) -> list[str]:
