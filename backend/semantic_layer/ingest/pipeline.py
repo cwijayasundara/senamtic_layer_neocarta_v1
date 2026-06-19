@@ -15,6 +15,8 @@ from semantic_layer.graph.client import get_driver, reset_graph
 from semantic_layer.apis.app import app
 from semantic_layer.ingest.sql_extractor import extract_postgres, extract_sqlite
 from semantic_layer.ingest.api_extractor import extract_all_apis
+from semantic_layer.ingest.synthetic_api import extract_synthetic_apis
+from data.generators.scale_catalog import generate_scale_catalog
 from semantic_layer.ingest.metadata_loader import load_bundle
 from semantic_layer.ingest.value_indexer import index_values
 from semantic_layer.ingest.period_indexer import index_periods
@@ -28,6 +30,25 @@ from semantic_layer.ingest.doc_graph import extract_period, link_document_period
 def _api_spec_getter():
     client = TestClient(app)
     return lambda prefix: client.get(f"{prefix}/openapi.json").json()
+
+
+def _scale_bundles() -> list:
+    """Distractor SchemaBundles: one per scale_* schema (empty Postgres tables,
+    introspected live) plus one per synthetic REST API. Empty when scale_mode off."""
+    if not settings.scale_mode:
+        return []
+    catalog = generate_scale_catalog(
+        seed=settings.random_seed,
+        n_tables=settings.scale_n_tables,
+        n_apis=settings.scale_n_apis,
+    )
+    schemas = sorted({t.schema for t in catalog.tables})
+    bundles = [
+        extract_postgres(settings.postgres_dsn, source="scale", schema_name=s)
+        for s in schemas
+    ]
+    bundles += extract_synthetic_apis(catalog)
+    return bundles
 
 
 def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
@@ -44,6 +65,9 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
             extract_sqlite(str(sqlite_dir / "org.db"), source="org"),
         ]
         bundles += extract_all_apis(_api_spec_getter(), settings.api_source_list)
+        scale = _scale_bundles()
+        bundles += scale
+        counts["scale_sources"] = len(scale)
         for b in bundles:
             load_bundle(driver, b)
         counts["sources"] = len(bundles)
