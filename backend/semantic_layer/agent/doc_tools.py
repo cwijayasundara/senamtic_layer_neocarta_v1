@@ -6,7 +6,7 @@ from langchain_core.tools import tool
 
 from semantic_layer.agent.driver import driver
 from semantic_layer.config import settings
-from semantic_layer.ingest.llm import get_openai_client
+from semantic_layer.ingest.embeddings import embed_query
 
 
 @tool
@@ -15,10 +15,7 @@ def search_documents(query: str, k: int = 5) -> str:
 
     Embeds the query and runs vector search over document chunks. Returns the top-k
     passages with their document id and similarity score, for citing in answers."""
-    vec = get_openai_client().embeddings.create(
-        model=settings.embedding_model, input=[query],
-        dimensions=settings.embedding_dimensions,
-    ).data[0].embedding
+    vec = embed_query(query)
     records = driver().execute_query(
         """
         CALL db.index.vector.queryNodes('chunk_embeddings', $k, $vec)

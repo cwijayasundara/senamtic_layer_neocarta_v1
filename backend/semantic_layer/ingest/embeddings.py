@@ -27,6 +27,15 @@ def fake_vector(text: str, dim: int) -> list[float]:
     return out
 
 
+def embed_query(text: str) -> list[float]:
+    """Embed a single query string to a vector for query-time vector search.
+    Shared by document and table retrieval so the call lives in one place."""
+    return get_openai_client().embeddings.create(
+        model=settings.embedding_model, input=[text],
+        dimensions=settings.embedding_dimensions,
+    ).data[0].embedding
+
+
 def embed_chunks(driver: Driver, batch: int = 64) -> None:
     """Embed Chunk.text into Chunk.embedding and ensure a vector index exists."""
     if settings.fake_embeddings:
