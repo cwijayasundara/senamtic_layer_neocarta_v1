@@ -31,8 +31,10 @@ class RateLimiter:
     def allow(self, key: str) -> bool:
         with self._lock:
             now = self._now()
-            # Bound memory: when the map is full, drop fully-expired windows so a flood
-            # of distinct keys cannot grow _hits without limit (DoS guard).
+            # Bound steady-state memory: when the map is full, drop fully-expired windows
+            # so distinct-key churn doesn't accumulate. (A flood of >max_keys keys ACTIVE
+            # within one 60s window still grows past the cap — the distributed/Redis
+            # limiter is the real fix for that, deferred.)
             if len(self._hits) >= self._max_keys:
                 self._hits = {k: v for k, v in self._hits.items() if now - v[0] < 60}
             start, count = self._hits.get(key, (now, 0))
