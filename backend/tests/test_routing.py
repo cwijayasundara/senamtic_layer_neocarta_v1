@@ -104,10 +104,17 @@ def test_keyword_value_hits_filters_non_table_ids(monkeypatch):
 
 @pytest.mark.neo4j
 @pytest.mark.openai
-def test_vector_routing_finds_customer_table(ingested_graph):
-    # Embed tables for real, then the semantic query that keyword retrieval missed.
+def test_vector_routing_finds_customer_table(neo4j_driver, postgres_dsn):
+    # Isolation-proof: force a clean deterministic graph (reset) so other tests that
+    # mutate the shared Neo4j graph can't perturb this one. Then embed tables and confirm
+    # the vector path retrieves the customer table for a semantic query that keyword
+    # matching misses ("customers" does not CONTAINS-match the "customer" table name).
+    # Scale-discrimination (finding it among ~1000 distractors) is measured by the eval
+    # harness, not here; this asserts the embed -> vector-retrieve -> find path works.
+    from semantic_layer.ingest.pipeline import run_ingest
     from semantic_layer.ingest.embeddings import embed_tables
-    embed_tables(ingested_graph)
+    run_ingest(with_llm=False, reset=True)
+    embed_tables(neo4j_driver)
     out = routing.retrieve_candidate_tables("How many customers are there in total?", k_ret=20)
     ids = {c["table_id"] for c in out}
     assert "table:sales_pg.sales.customer" in ids
