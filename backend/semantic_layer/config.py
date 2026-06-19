@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # tables so a large catalog yields a bounded join (not a whole-schema scan).
     schema_routing_max_targets: int = 8
 
+    # --- scale / load-test harness ---
+    scale_mode: bool = False
+    scale_n_tables: int = 1000
+    scale_n_apis: int = 46
+    scale_core_customers: int = 5000
+    scale_core_orders: int = 50000
+    fake_embeddings: bool = False
+
     # Entity-extraction throughput: chunks per LLM call, and concurrent in-flight
     # batches during ingest (replaces the old one-call-per-chunk serial loop).
     entity_batch_size: int = 10
