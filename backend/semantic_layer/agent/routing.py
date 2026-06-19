@@ -32,9 +32,6 @@ _RANK_PROMPT = (
 )
 
 
-_VALUE_KINDS = {"value", "business_term"}
-
-
 def _vector_table_hits(question: str, k: int) -> dict[str, float]:
     """Top-k tables by cosine similarity of the question to Table.embedding.
     {table_id: score}. Empty when the `table_embeddings` index is missing/unbuilt,
@@ -55,19 +52,30 @@ def _vector_table_hits(question: str, k: int) -> dict[str, float]:
             if r["table_id"] and r["table_id"].startswith("table:")}
 
 
-def _keyword_value_hits(question: str) -> dict[str, float]:
-    """Exact value / business-term routing from search_catalog (e.g. 'EMEA' -> region
-    table) — the signal embeddings cannot provide. Only value/term hits resolving to a
-    real table id are kept."""
-    hits = json.loads(search_catalog.invoke({"query": question}))
+_VALUE_HITS_CYPHER = """
+UNWIND $terms AS term
+MATCH (c:Column)-[:HAS_VALUE]->(v:Value)
+WHERE toLower(v.name) CONTAINS term
+MATCH (t:Table)-[:HAS_COLUMN]->(c)
+RETURN t.id AS table_id, count(*) AS score
+ORDER BY score DESC LIMIT $limit
+"""
+
+
+def _keyword_value_hits(question: str, limit: int = 30) -> dict[str, float]:
+    """Exact data-value routing straight from the value layer (e.g. 'EMEA' -> region
+    table) — the signal embeddings can't provide. Queries the value layer directly
+    rather than via search_catalog, whose concatenated top-N truncates value hits out
+    once the catalog is large."""
+    terms = [t for t in question.lower().split() if len(t) > 2] or [question.lower()]
+    recs = driver().execute_query(
+        _VALUE_HITS_CYPHER, terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
     out: dict[str, float] = {}
-    for h in hits:
-        if h.get("kind") not in _VALUE_KINDS:
-            continue
-        tid = h.get("table_id")
-        if not tid or not tid.startswith("table:"):
-            continue
-        out[tid] = out.get(tid, 0.0) + float(h.get("score") or 1)
+    for r in recs:
+        tid = r["table_id"]
+        if tid and tid.startswith("table:"):
+            out[tid] = out.get(tid, 0.0) + float(r["score"])
     return out
 
 

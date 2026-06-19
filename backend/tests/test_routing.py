@@ -23,28 +23,22 @@ def test_retrieve_falls_back_to_keyword_when_no_vector(monkeypatch):
 def test_retrieve_unions_vector_and_value_hits(monkeypatch):
     monkeypatch.setattr(routing, "_vector_table_hits",
                         lambda q, k: {"table:sales_pg.sales.customer": 0.9})
-    # search_catalog supplies a value hit for a different table (region via 'EMEA').
-    hits = [{"kind": "value", "id": "c1", "name": "EMEA",
-             "table_id": "table:sales_pg.sales.region", "score": 3}]
-    monkeypatch.setattr(routing, "search_catalog", type("T", (), {
-        "invoke": staticmethod(lambda _a: json.dumps(hits))})())
+    monkeypatch.setattr(routing, "_keyword_value_hits",
+                        lambda q: {"table:sales_pg.sales.region": 3.0})
     out = routing.retrieve_candidate_tables("customers in EMEA", k_ret=20)
     ids = {c["table_id"] for c in out}
     assert "table:sales_pg.sales.customer" in ids   # from vector
-    assert "table:sales_pg.sales.region" in ids     # from value keyword hit
+    assert "table:sales_pg.sales.region" in ids     # from value layer
 
 
-def test_retrieve_keyword_value_hits_ignores_non_value_kinds(monkeypatch):
+def test_retrieve_includes_value_table_absent_from_vector(monkeypatch):
     monkeypatch.setattr(routing, "_vector_table_hits",
-                        lambda q, k: {"table:sales_pg.sales.customer": 0.9})
-    # a plain column hit must NOT be unioned (only value/business_term routing is kept)
-    hits = [{"kind": "column", "id": "c2", "name": "amount",
-             "table_id": "table:scale.scale_hr.payroll", "score": 5}]
-    monkeypatch.setattr(routing, "search_catalog", type("T", (), {
-        "invoke": staticmethod(lambda _a: json.dumps(hits))})())
-    out = routing.retrieve_candidate_tables("how many customers", k_ret=20)
+                        lambda q, k: {"table:scale.scale_hr.payroll": 0.5})
+    monkeypatch.setattr(routing, "_keyword_value_hits",
+                        lambda q: {"table:sales_pg.sales.region": 2.0})
+    out = routing.retrieve_candidate_tables("how many in EMEA", k_ret=20)
     ids = {c["table_id"] for c in out}
-    assert ids == {"table:sales_pg.sales.customer"}
+    assert "table:sales_pg.sales.region" in ids
 
 
 @pytest.mark.neo4j
