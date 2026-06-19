@@ -8,6 +8,7 @@ still enrich the graph as connected nodes.
 """
 
 import re
+from collections import defaultdict
 
 from neo4j import Driver
 
@@ -118,6 +119,30 @@ def _token_match(entity_norm: str, value_norm: str) -> bool:
     )
 
 
+def _candidate_pairs(entities: list[str], values: list[str]) -> list[dict]:
+    """Token-blocked Entity->Value candidate pairs, equivalent to the brute-force
+    cross-product filtered by (en == vn or _token_match) but near-linear: a value can
+    only match an entity that shares one of the value's tokens, so we index values by
+    token and probe only the candidates per entity."""
+    by_token: dict[str, list[str]] = defaultdict(list)
+    for vn in values:
+        for tok in set(vn.split()):
+            by_token[tok].append(vn)
+    pairs: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for en in entities:
+        candidates: set[str] = set()
+        for tok in set(en.split()):
+            candidates.update(by_token.get(tok, ()))
+        for vn in candidates:
+            if (en, vn) in seen:
+                continue
+            if en == vn or _token_match(en, vn):
+                seen.add((en, vn))
+                pairs.append({"e": en, "v": vn})
+    return pairs
+
+
 def bridge_entities_to_values(driver: Driver) -> int:
     """Link document Entities to catalog Values that name the same thing.
 
@@ -127,11 +152,7 @@ def bridge_entities_to_values(driver: Driver) -> int:
     with driver.session(database=settings.neo4j_database) as session:
         entities = [r["norm"] for r in session.run("MATCH (e:Entity) RETURN DISTINCT e.norm AS norm")]
         values = [r["norm"] for r in session.run("MATCH (v:Value) RETURN DISTINCT v.norm AS norm")]
-        pairs = [
-            {"e": en, "v": vn}
-            for en in entities for vn in values
-            if en == vn or _token_match(en, vn)
-        ]
+        pairs = _candidate_pairs(entities, values)
         if pairs:
             session.run(
                 """
