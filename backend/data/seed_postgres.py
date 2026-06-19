@@ -28,9 +28,15 @@ _TABLES = [
 ]
 
 
-def seed(dsn: str | None = None, seed_value: int | None = None) -> dict:
+def seed(dsn: str | None = None, seed_value: int | None = None,
+         n_customers: int | None = None, n_orders: int | None = None) -> dict:
     dsn = dsn or settings.postgres_dsn
-    data = generate_sales(seed=seed_value if seed_value is not None else settings.random_seed)
+    kwargs = {"seed": seed_value if seed_value is not None else settings.random_seed}
+    if n_customers is not None:
+        kwargs["n_customers"] = n_customers
+    if n_orders is not None:
+        kwargs["n_orders"] = n_orders
+    data = generate_sales(**kwargs)
     counts = {}
     with psycopg.connect(dsn) as conn:
         with conn.cursor() as cur:
