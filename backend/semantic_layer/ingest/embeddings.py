@@ -1,5 +1,8 @@
 """Create embeddings + vector indexes for chunks and metadata nodes."""
 
+import hashlib
+import struct
+
 from neo4j import Driver
 
 from neocarta.enrichment.embeddings import OpenAIEmbeddingsConnector
@@ -8,8 +11,40 @@ from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_openai_client
 
 
+def fake_vector(text: str, dim: int) -> list[float]:
+    """Deterministic pseudo-embedding from a text hash — no OpenAI call. For scale
+    runs where exact semantic quality is not under test (routing is keyword-based)."""
+    out: list[float] = []
+    i = 0
+    while len(out) < dim:
+        digest = hashlib.sha256(f"{text}:{i}".encode()).digest()
+        for j in range(0, len(digest), 4):
+            if len(out) >= dim:
+                break
+            (val,) = struct.unpack("I", digest[j:j + 4])
+            out.append((val / 0xFFFFFFFF) * 2.0 - 1.0)   # in [-1, 1]
+        i += 1
+    return out
+
+
 def embed_chunks(driver: Driver, batch: int = 64) -> None:
     """Embed Chunk.text into Chunk.embedding and ensure a vector index exists."""
+    if settings.fake_embeddings:
+        with driver.session(database=settings.neo4j_database) as session:
+            rows = session.run(
+                "MATCH (c:Chunk) WHERE c.embedding IS NULL RETURN c.id AS id, c.text AS text"
+            ).data()
+            session.run(
+                """
+                UNWIND $rows AS row
+                MATCH (c:Chunk {id: row.id})
+                CALL db.create.setNodeVectorProperty(c, 'embedding', row.vec)
+                """,
+                rows=[{"id": r["id"], "vec": fake_vector(r["text"] or "", settings.embedding_dimensions)}
+                      for r in rows],
+            )
+        _ensure_chunk_vector_index(driver)
+        return
     client = get_openai_client()
     with driver.session(database=settings.neo4j_database) as session:
         rows = session.run(
@@ -56,6 +91,8 @@ def _ensure_chunk_vector_index(driver: Driver) -> None:
 
 def embed_metadata_nodes(driver: Driver) -> None:
     """Embed Table/Column/BusinessTerm nodes via NeoCarta's OpenAI connector."""
+    if settings.fake_embeddings:
+        return  # routing uses keyword catalog search; skip costly metadata embeds
     connector = OpenAIEmbeddingsConnector(
         driver,
         client=get_openai_client(),
