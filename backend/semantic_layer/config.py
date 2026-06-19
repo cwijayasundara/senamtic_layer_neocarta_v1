@@ -90,9 +90,17 @@ class Settings(BaseSettings):
     # code: list its name here and mount/serve its OpenAPI spec under /{name}.
     api_sources: str = "crm,itsm,partner,dgx"
 
+    # API auth: comma-separated allowed keys (sent as the X-API-Key header). Empty =
+    # auth DISABLED (dev default). Set to enable; clients must present a listed key.
+    api_keys: str = ""
+
     @property
     def api_source_list(self) -> list[str]:
         return [s.strip() for s in self.api_sources.split(",") if s.strip()]
+
+    @property
+    def api_key_list(self) -> list[str]:
+        return [k.strip() for k in self.api_keys.split(",") if k.strip()]
 
     @property
     def postgres_dsn(self) -> str:

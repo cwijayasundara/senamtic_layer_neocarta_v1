@@ -3,11 +3,12 @@
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from semantic_layer.web.auth import require_api_key
 from semantic_layer.web.graph_api import get_sources, get_schema_graph
 from semantic_layer.web.events import stream_chat_events
 from semantic_layer.agent.pg_pool import ensure_pool_open, get_pool
@@ -37,7 +38,7 @@ def sources():
     return get_sources()
 
 
-@app.get("/graph")
+@app.get("/graph", dependencies=[Depends(require_api_key)])
 def graph(source: str | None = None, max_chunks: int | None = None):
     # Clamp a caller-supplied cap to [0, server default] so a request can only NARROW
     # the chunk layer, never exceed the server bound (resource-exhaustion guard) or go
@@ -50,7 +51,7 @@ class ChatRequest(BaseModel):
     question: str
 
 
-@app.post("/chat")
+@app.post("/chat", dependencies=[Depends(require_api_key)])
 async def chat(req: ChatRequest):
     def event_generator():
         for event in stream_chat_events(req.question):
