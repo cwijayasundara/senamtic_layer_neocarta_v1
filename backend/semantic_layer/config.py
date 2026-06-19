@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # When routing is enabled, cap the sales-leg join targets to this many routed
     # tables so a large catalog yields a bounded join (not a whole-schema scan).
     schema_routing_max_targets: int = 8
+    # Vector breadth for embedding-based table retrieval: how many tables the
+    # vector search returns before the keyword value-hits are unioned in.
+    schema_routing_k_vec: int = 30
 
     # --- scale / load-test harness ---
     scale_mode: bool = False
