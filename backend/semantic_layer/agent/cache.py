@@ -84,4 +84,17 @@ def embed_query(question: str) -> list[float]:
     return resp.data[0].embedding
 
 
-query_cache = QueryCache(settings.cache_max_entries, settings.cache_ttl_seconds)
+def _redis_client_from_url(url: str):
+    import redis  # lazy: memory backend must not require redis installed
+    return redis.from_url(url)
+
+
+def build_query_cache():
+    """Select the cache backend from settings (memory default; redis for multi-worker)."""
+    if settings.cache_backend == "redis":
+        from semantic_layer.agent.redis_cache import RedisQueryCache
+        return RedisQueryCache(_redis_client_from_url(settings.redis_url), settings.cache_ttl_seconds)
+    return QueryCache(settings.cache_max_entries, settings.cache_ttl_seconds)
+
+
+query_cache = build_query_cache()
