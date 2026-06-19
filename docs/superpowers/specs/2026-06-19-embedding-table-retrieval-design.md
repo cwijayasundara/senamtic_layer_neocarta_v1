@@ -167,3 +167,23 @@ query time:
   meaningless.
 - Auto-generating real `Table.description` text (the synthesized name+columns embed text is
   sufficient and avoids an LLM pass).
+
+## Implementation notes (post-merge)
+
+Two intentional refinements during implementation, for the next reader:
+
+- **Value routing queries the value layer directly, not `search_catalog`.** `search_catalog`
+  returns a concatenated `hits[:limit]`, so at ~1,000 tables the column/table keyword hits
+  fill the cap and the value hits are truncated out. `_keyword_value_hits` therefore runs a
+  direct `(Column)-[:HAS_VALUE]->(Value)` Cypher. A side effect: **BusinessTerm** hits are no
+  longer unioned into the vector-path merge (they survive only via the keyword `_keyword_fallback`
+  used for embedding-less graphs). The "value/business_term" wording above describes the original
+  intent; the shipped hybrid path is vector ∪ exact-value.
+- **Value-matched tables are pinned at score 1.0 in the merge** (`setdefault(tid, 1.0)`). Since
+  cosine scores are ≤ 1.0, this guarantees value tables enter the candidate set at/above vector
+  hits — inclusion is the goal, and the LLM ranker (`rank_tables`) re-scores afterward, so exact
+  ordering within the candidate set does not affect the final selection.
+
+**Measured result (live, 1,072-table scaled graph):** routing hit-rate 17.4% → 56.5%, recall
+0.26 → 0.68, precision 0.30 → 0.66. Remaining weak spots — multi-table-join recall 0.31 and
+near-miss 0.25 — are future tuning (k_vec/k_ret, FK-neighbor expansion), not defects.
