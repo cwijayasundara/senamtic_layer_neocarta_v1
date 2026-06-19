@@ -34,15 +34,17 @@ def embed_chunks(driver: Driver, batch: int = 64) -> None:
             rows = session.run(
                 "MATCH (c:Chunk) WHERE c.embedding IS NULL RETURN c.id AS id, c.text AS text"
             ).data()
-            session.run(
-                """
-                UNWIND $rows AS row
-                MATCH (c:Chunk {id: row.id})
-                CALL db.create.setNodeVectorProperty(c, 'embedding', row.vec)
-                """,
-                rows=[{"id": r["id"], "vec": fake_vector(r["text"] or "", settings.embedding_dimensions)}
-                      for r in rows],
-            )
+            for i in range(0, len(rows), batch):
+                window = rows[i:i + batch]
+                session.run(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (c:Chunk {id: row.id})
+                    CALL db.create.setNodeVectorProperty(c, 'embedding', row.vec)
+                    """,
+                    rows=[{"id": w["id"], "vec": fake_vector(w["text"] or "", settings.embedding_dimensions)}
+                          for w in window],
+                )
         _ensure_chunk_vector_index(driver)
         return
     client = get_openai_client()
