@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 3600
     cache_similarity_threshold: float = 0.95
 
+    # Query cache backend: "memory" (in-process, default) or "redis" (shared across
+    # workers, exact-match only — cross-worker semantic needs a vector index, see plan).
+    cache_backend: str = "memory"
+    redis_url: str = "redis://localhost:6379/0"
+
     # Postgres connection pool (replaces per-call psycopg.connect in sql_tools).
     # NOTE (multi-worker): the pool and the answer-concurrency gate are PER PROCESS.
     # Under N uvicorn/gunicorn workers the real Postgres connection ceiling is

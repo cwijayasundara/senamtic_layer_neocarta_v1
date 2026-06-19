@@ -19,10 +19,11 @@ dependencies = [
     "deepagents>=0.6",
     "langchain-community>=0.3",
     "sse-starlette>=2.0",
+    "redis>=5",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0", "httpx>=0.27,<0.29"]
+dev = ["pytest>=8.0", "httpx>=0.27,<0.29", "fakeredis>=2.20"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -39,4 +40,5 @@ markers = [
     "postgres: integration tests that require the docker postgres service",
     "neo4j: tests requiring the docker neo4j service",
     "openai: tests requiring OPENAI_API_KEY",
+    "redis: tests requiring a reachable Redis service",
 ]
