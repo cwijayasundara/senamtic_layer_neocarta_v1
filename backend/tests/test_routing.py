@@ -4,8 +4,9 @@ import pytest
 from semantic_layer.agent import routing
 
 
-def test_retrieve_candidate_tables_dedups_and_ranks(monkeypatch):
-    # search_catalog is a LangChain tool invoked via .invoke({"query": ...}).
+def test_retrieve_falls_back_to_keyword_when_no_vector(monkeypatch):
+    # No table embeddings -> vector hits empty -> keyword fallback (prior behavior).
+    monkeypatch.setattr(routing, "_vector_table_hits", lambda q, k: {})
     hits = [
         {"kind": "value", "id": "c1", "name": "EMEA", "table_id": "table:sales_pg.sales.region", "score": 3},
         {"kind": "column", "id": "c2", "name": "segment", "table_id": "table:sales_pg.sales.segment", "score": 2},
@@ -15,9 +16,35 @@ def test_retrieve_candidate_tables_dedups_and_ranks(monkeypatch):
         "invoke": staticmethod(lambda _a: json.dumps(hits))})())
     out = routing.retrieve_candidate_tables("revenue by segment in EMEA", k_ret=20)
     ids = [c["table_id"] for c in out]
-    assert ids == ["table:sales_pg.sales.region", "table:sales_pg.sales.segment"]  # deduped, score-summed, ranked
+    assert ids == ["table:sales_pg.sales.region", "table:sales_pg.sales.segment"]
     assert out[0]["score"] == 4  # 3 + 1 for region
-    assert len(out) <= 20
+
+
+def test_retrieve_unions_vector_and_value_hits(monkeypatch):
+    monkeypatch.setattr(routing, "_vector_table_hits",
+                        lambda q, k: {"table:sales_pg.sales.customer": 0.9})
+    # search_catalog supplies a value hit for a different table (region via 'EMEA').
+    hits = [{"kind": "value", "id": "c1", "name": "EMEA",
+             "table_id": "table:sales_pg.sales.region", "score": 3}]
+    monkeypatch.setattr(routing, "search_catalog", type("T", (), {
+        "invoke": staticmethod(lambda _a: json.dumps(hits))})())
+    out = routing.retrieve_candidate_tables("customers in EMEA", k_ret=20)
+    ids = {c["table_id"] for c in out}
+    assert "table:sales_pg.sales.customer" in ids   # from vector
+    assert "table:sales_pg.sales.region" in ids     # from value keyword hit
+
+
+def test_retrieve_keyword_value_hits_ignores_non_value_kinds(monkeypatch):
+    monkeypatch.setattr(routing, "_vector_table_hits",
+                        lambda q, k: {"table:sales_pg.sales.customer": 0.9})
+    # a plain column hit must NOT be unioned (only value/business_term routing is kept)
+    hits = [{"kind": "column", "id": "c2", "name": "amount",
+             "table_id": "table:scale.scale_hr.payroll", "score": 5}]
+    monkeypatch.setattr(routing, "search_catalog", type("T", (), {
+        "invoke": staticmethod(lambda _a: json.dumps(hits))})())
+    out = routing.retrieve_candidate_tables("how many customers", k_ret=20)
+    ids = {c["table_id"] for c in out}
+    assert ids == {"table:sales_pg.sales.customer"}
 
 
 @pytest.mark.neo4j
@@ -67,3 +94,14 @@ def test_rank_tables_filters_by_threshold_and_limit(monkeypatch):
 def test_route_tables_returns_empty_without_candidates(monkeypatch):
     monkeypatch.setattr(routing_mod, "retrieve_candidate_tables", lambda q, k_ret=20: [])
     assert routing_mod.route_tables("nonsense xyzzy") == []
+
+
+@pytest.mark.neo4j
+@pytest.mark.openai
+def test_vector_routing_finds_customer_table(ingested_graph):
+    # Embed tables for real, then the semantic query that keyword retrieval missed.
+    from semantic_layer.ingest.embeddings import embed_tables
+    embed_tables(ingested_graph)
+    out = routing.retrieve_candidate_tables("How many customers are there in total?", k_ret=20)
+    ids = {c["table_id"] for c in out}
+    assert "table:sales_pg.sales.customer" in ids

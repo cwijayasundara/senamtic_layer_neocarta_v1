@@ -5,11 +5,13 @@ LinkedIn text-to-SQL, arXiv 2507.14372)."""
 
 import json
 
+from neo4j.exceptions import ClientError
 from pydantic import BaseModel, Field
 
 from semantic_layer.agent.driver import driver
 from semantic_layer.agent.graph_tools import search_catalog
 from semantic_layer.config import settings
+from semantic_layer.ingest.embeddings import embed_query
 from semantic_layer.ingest.llm import get_chat_model
 
 
@@ -30,20 +32,70 @@ _RANK_PROMPT = (
 )
 
 
-def retrieve_candidate_tables(question: str, k_ret: int = 20) -> list[dict]:
-    """High-recall candidate tables for a question.
+_VALUE_KINDS = {"value", "business_term"}
 
-    Aggregates search_catalog hits (keyword/value/business-term) by their owning
-    table, summing hit scores. Returns [{table_id, score}] ranked DESC, capped at
-    k_ret. Tuned for recall: k_ret is intentionally generous; the LLM ranker
-    (rank_tables) trims to a precise set."""
+
+def _vector_table_hits(question: str, k: int) -> dict[str, float]:
+    """Top-k tables by cosine similarity of the question to Table.embedding.
+    {table_id: score}. Empty when the `table_embeddings` index is missing/unbuilt,
+    so the caller falls back to keyword retrieval."""
+    try:
+        vec = embed_query(question)
+        recs = driver().execute_query(
+            """
+            CALL db.index.vector.queryNodes('table_embeddings', $k, $vec)
+            YIELD node, score
+            RETURN node.id AS table_id, score
+            """,
+            k=k, vec=vec, database_=settings.neo4j_database,
+        ).records
+    except ClientError:
+        return {}
+    return {r["table_id"]: r["score"] for r in recs
+            if r["table_id"] and r["table_id"].startswith("table:")}
+
+
+def _keyword_value_hits(question: str) -> dict[str, float]:
+    """Exact value / business-term routing from search_catalog (e.g. 'EMEA' -> region
+    table) — the signal embeddings cannot provide. Only value/term hits resolving to a
+    real table id are kept."""
     hits = json.loads(search_catalog.invoke({"query": question}))
-    scores: dict[str, int] = {}
+    out: dict[str, float] = {}
+    for h in hits:
+        if h.get("kind") not in _VALUE_KINDS:
+            continue
+        tid = h.get("table_id")
+        if not tid or not tid.startswith("table:"):
+            continue
+        out[tid] = out.get(tid, 0.0) + float(h.get("score") or 1)
+    return out
+
+
+def _keyword_fallback(question: str, k_ret: int) -> list[dict]:
+    """Original keyword-only aggregation over all search_catalog hits, used when no
+    table embeddings exist so retrieval degrades to prior behavior."""
+    hits = json.loads(search_catalog.invoke({"query": question}))
+    scores: dict[str, float] = {}
     for h in hits:
         tid = h.get("table_id")
         if not tid or not tid.startswith("table:"):
             continue
-        scores[tid] = scores.get(tid, 0) + int(h.get("score") or 1)
+        scores[tid] = scores.get(tid, 0.0) + float(h.get("score") or 1)
+    ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [{"table_id": tid, "score": s} for tid, s in ranked[:k_ret]]
+
+
+def retrieve_candidate_tables(question: str, k_ret: int = 20) -> list[dict]:
+    """High-recall candidate tables: semantic vector hits over Table.embedding unioned
+    with exact value-routing keyword hits. Falls back to keyword-only when no table
+    embeddings exist. Returns [{table_id, score}] capped at k_ret; the LLM ranker
+    (rank_tables) trims to a precise set."""
+    vector = _vector_table_hits(question, k=settings.schema_routing_k_vec)
+    if not vector:
+        return _keyword_fallback(question, k_ret)
+    scores: dict[str, float] = dict(vector)
+    for tid in _keyword_value_hits(question):
+        scores.setdefault(tid, 1.0)   # ensure value-matched tables make the candidate set
     ranked = sorted(scores.items(), key=lambda kv: (-kv[1], kv[0]))
     return [{"table_id": tid, "score": s} for tid, s in ranked[:k_ret]]
 
