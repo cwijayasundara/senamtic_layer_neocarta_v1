@@ -90,6 +90,18 @@ def test_route_tables_returns_empty_without_candidates(monkeypatch):
     assert routing_mod.route_tables("nonsense xyzzy") == []
 
 
+def test_keyword_value_hits_filters_non_table_ids(monkeypatch):
+    recs = [
+        {"table_id": "table:sales_pg.sales.region", "score": 2},
+        {"table_id": "column:sales_pg.sales.region.name", "score": 9},  # not a table id
+    ]
+    result = type("R", (), {"records": recs})()
+    fake_driver = type("D", (), {"execute_query": staticmethod(lambda *a, **k: result)})()
+    monkeypatch.setattr(routing, "driver", lambda: fake_driver)
+    out = routing._keyword_value_hits("revenue in EMEA")
+    assert out == {"table:sales_pg.sales.region": 2.0}   # non-table id dropped
+
+
 @pytest.mark.neo4j
 @pytest.mark.openai
 def test_vector_routing_finds_customer_table(ingested_graph):

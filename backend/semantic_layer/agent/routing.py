@@ -68,9 +68,12 @@ def _keyword_value_hits(question: str, limit: int = 30) -> dict[str, float]:
     rather than via search_catalog, whose concatenated top-N truncates value hits out
     once the catalog is large."""
     terms = [t for t in question.lower().split() if len(t) > 2] or [question.lower()]
-    recs = driver().execute_query(
-        _VALUE_HITS_CYPHER, terms=terms, limit=limit, database_=settings.neo4j_database,
-    ).records
+    try:
+        recs = driver().execute_query(
+            _VALUE_HITS_CYPHER, terms=terms, limit=limit, database_=settings.neo4j_database,
+        ).records
+    except ClientError:
+        return {}
     out: dict[str, float] = {}
     for r in recs:
         tid = r["table_id"]
