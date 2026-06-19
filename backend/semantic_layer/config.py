@@ -94,6 +94,10 @@ class Settings(BaseSettings):
     # auth DISABLED (dev default). Set to enable; clients must present a listed key.
     api_keys: str = ""
 
+    # Per-client requests/minute on /chat (keyed by API key, else client IP).
+    # 0 disables rate limiting (dev default).
+    rate_limit_per_min: int = 0
+
     @property
     def api_source_list(self) -> list[str]:
         return [s.strip() for s in self.api_sources.split(",") if s.strip()]

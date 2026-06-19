@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from semantic_layer.web.auth import require_api_key
+from semantic_layer.web.auth import require_api_key, rate_limit
 from semantic_layer.web.graph_api import get_sources, get_schema_graph
 from semantic_layer.web.events import stream_chat_events
 from semantic_layer.agent.pg_pool import ensure_pool_open, get_pool
@@ -51,7 +51,7 @@ class ChatRequest(BaseModel):
     question: str
 
 
-@app.post("/chat", dependencies=[Depends(require_api_key)])
+@app.post("/chat", dependencies=[Depends(require_api_key), Depends(rate_limit)])
 async def chat(req: ChatRequest):
     def event_generator():
         for event in stream_chat_events(req.question):
