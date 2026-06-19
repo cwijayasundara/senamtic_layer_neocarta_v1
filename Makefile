@@ -1,7 +1,27 @@
-.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest ask serve-web scale-seed scale-ingest eval eval-baseline scale-teardown
+.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest ask serve-web scale-seed scale-ingest eval eval-baseline scale-teardown setup setup-baseline
 
 install:
 	cd backend && pip install -e ".[dev]"
+
+# One-command first-time provisioning (Docker stores + Python venv & deps + data
+# + graph ingest). Uses backend/.venv explicitly so it works without an activated
+# venv. Default provisions the full SCALE catalog (~1000 distractor tables + scaled
+# core); needs OPENAI_API_KEY in backend/.env for routing embeddings.
+# Use `make setup-baseline` for the small core-only demo (40 customers, ~16 tables).
+setup: up
+	cd backend && test -x .venv/bin/python || python3 -m venv .venv
+	cd backend && .venv/bin/pip install --quiet -e ".[dev]"
+	cd backend && SCALE_MODE=true .venv/bin/python -m data.seed_scale
+	cd backend && .venv/bin/python -m data.seed_sqlite
+	cd backend && SCALE_MODE=true SCHEMA_ROUTING_ENABLED=true FAKE_EMBEDDINGS=true .venv/bin/python -m semantic_layer.ingest.pipeline
+	@echo "==> Setup complete (scale catalog: ~1000 tables). Next: ./start-backend.sh  then  ./start-ui.sh"
+
+setup-baseline: up
+	cd backend && test -x .venv/bin/python || python3 -m venv .venv
+	cd backend && .venv/bin/pip install --quiet -e ".[dev]"
+	cd backend && .venv/bin/python -m data.seed_postgres && .venv/bin/python -m data.seed_sqlite
+	cd backend && .venv/bin/python -m semantic_layer.ingest.pipeline
+	@echo "==> Baseline setup complete (~16 tables). Next: ./start-backend.sh  then  ./start-ui.sh"
 
 up:
 	docker compose up -d

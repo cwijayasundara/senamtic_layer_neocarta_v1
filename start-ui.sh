@@ -2,7 +2,7 @@
 # NeoCarta-Local — start the Next.js web UI.
 #
 # Requires the backend web API (port 8000) to be running first —
-# run ./setup.sh then ./start-backend.sh.
+# run make setup then ./start-backend.sh.
 #
 # Usage:  ./start-ui.sh            # runs on http://localhost:3005
 #         ./start-ui.sh 3010       # or any port you like
@@ -45,7 +45,7 @@ fi
 # Friendly heads-up if the backend API isn't reachable yet.
 if command -v curl >/dev/null && ! curl -sf http://localhost:8000/health >/dev/null 2>&1; then
   echo "WARNING: the web API on http://localhost:8000 is not responding."
-  echo "         Run ./setup.sh then ./start-backend.sh first, or the UI will load with an empty graph."
+  echo "         Run make setup then ./start-backend.sh first, or the UI will load with an empty graph."
 fi
 
 echo "==> Starting the UI on http://localhost:$UI_PORT  (Ctrl+C to stop)"

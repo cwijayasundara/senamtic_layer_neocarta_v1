@@ -2,7 +2,7 @@
 # NeoCarta-Local — start the backend app (part 2 of 2).
 #
 # Launches the mock enterprise APIs (:8001) and the agent web API (:8000).
-# Run ./setup.sh first to provision Docker, dependencies, and the ingested graph.
+# Run make setup first to provision Docker, dependencies, and the ingested graph.
 #
 # Usage:  ./start-backend.sh            # foreground: stream logs; Ctrl-C stops both servers
 #         ./start-backend.sh -d         # detached: launch in the background, return to the prompt
@@ -38,10 +38,10 @@ warn() { printf "\033[1;33mWARNING:\033[0m %s\n" "$*"; }
 die()  { printf "\n\033[1;31mERROR:\033[0m %s\n" "$*" >&2; exit 1; }
 
 # --- prerequisites ----------------------------------------------------------
-[ -x "$UVICORN" ] || die "Backend dependencies are not installed — run ./setup.sh first."
+[ -x "$UVICORN" ] || die "Backend dependencies are not installed — run make setup first."
 if command -v docker >/dev/null; then
   docker inspect --format '{{.State.Health.Status}}' neocarta-neo4j 2>/dev/null | grep -q healthy \
-    || warn "Neo4j container is not healthy — run ./setup.sh first (the web API needs it)."
+    || warn "Neo4j container is not healthy — run make setup first (the web API needs it)."
 fi
 
 # --- launch services --------------------------------------------------------

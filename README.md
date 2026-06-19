@@ -59,8 +59,9 @@ edges, which the SQL subagent then executes.
 # 1. add your OpenAI key (used by the agent + document embeddings)
 echo "OPENAI_API_KEY=sk-..." >> backend/.env      # backend/.env may be a symlink to ./.env
 
-# 2. provision infrastructure + data: Docker data stores, deps, seed, ingest
-./setup.sh
+# 2. provision infrastructure + data: Docker data stores, venv + deps, seed, ingest
+#    (default = the full ~1000-table scale catalog; `make setup-baseline` for the small demo)
+make setup
 
 # 3. start the backend app: mock enterprise APIs (:8001) + agent web API (:8000)
 ./start-backend.sh            # foreground — streams logs; Ctrl-C stops both servers
@@ -70,11 +71,12 @@ echo "OPENAI_API_KEY=sk-..." >> backend/.env      # backend/.env may be a symlin
 ./start-ui.sh        # http://localhost:3005  (pass a port: ./start-ui.sh 3010)
 ```
 
-The flow is split in two: `setup.sh` is idempotent and provisions the platform — it
-starts Neo4j + Postgres, installs the Python venv (via `uv` or `pip`), seeds the
-databases, and ingests the knowledge graph. `start-backend.sh` then launches the
-**mock enterprise APIs** (`:8001`) and the **agent web API** (`:8000`); `start-ui.sh`
-runs the Next.js UI.
+The flow is split in two: `make setup` provisions the platform — it starts Neo4j +
+Postgres, creates the Python venv and installs deps (into `backend/.venv`), seeds the
+databases, and ingests the knowledge graph. It is idempotent and **defaults to the full
+scale catalog** (~1000 distractor tables around the answerable core); run `make setup-baseline`
+for the small core-only demo. `start-backend.sh` then launches the **mock enterprise APIs**
+(`:8001`) and the **agent web API** (`:8000`); `start-ui.sh` runs the Next.js UI.
 
 **Try these in the UI** (it animates the agent's graph traversal for each):
 
@@ -96,8 +98,8 @@ Stop everything: Ctrl-C the backend (or `kill $(cat logs/*.pid) 2>/dev/null` if 
 
 | Service | URL / port | Started by |
 |---|---|---|
-| Neo4j (graph) | `localhost:7687`, browser `:7474` | Docker (`setup.sh`) |
-| Postgres (sales) | `localhost:5432` | Docker (`setup.sh`) |
+| Neo4j (graph) | `localhost:7687`, browser `:7474` | Docker (`make setup`) |
+| Postgres (sales) | `localhost:5432` | Docker (`make setup`) |
 | Mock enterprise APIs | `http://localhost:8001/docs` | `start-backend.sh` |
 | Agent web API (SSE) | `http://localhost:8000` | `start-backend.sh` |
 | Web UI | `http://localhost:3005` | `start-ui.sh` |
@@ -116,9 +118,9 @@ backend/            Python package (semantic_layer/) + tests (90 passing)
   data/             deterministic NVIDIA-themed data generators + seeders
 frontend/           Next.js 16 split-canvas UI (react-force-graph)
 docs/               the NVIDIA PDFs + superpowers/{specs,plans} design docs
-setup.sh            one-shot platform setup + backend services
+start-backend.sh    start the mock APIs + agent web API
 start-ui.sh         start the web UI
-Makefile            up · seed · ingest · serve-apis · serve-web · ask · test
+Makefile            setup · up · seed · ingest · scale-seed · scale-ingest · serve-* · ask · test
 docker-compose.yml  Neo4j + Postgres
 ```
 
@@ -136,5 +138,10 @@ Designed and implemented in five plans (full design + step-by-step plans under
 
 ## Make targets
 
-`make up` · `make seed` · `make ingest` · `make serve-apis` · `make serve-web` ·
+`make setup` (one-shot provision: Docker + venv + **scale catalog** + ingest) ·
+`make setup-baseline` (small core-only demo) · `make up` · `make seed` · `make ingest` ·
+`make scale-seed` · `make scale-ingest` · `make eval` · `make serve-apis` · `make serve-web` ·
 `make ask q="…"` (CLI agent) · `make test` (run the suite).
+
+To rebuild the graph with the full scale catalog at any time (e.g. after it's been
+reset), run `make scale-seed && make scale-ingest`. `make setup` does this by default.
