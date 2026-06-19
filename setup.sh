@@ -5,7 +5,7 @@
 # seeds the databases, and ingests the knowledge graph. It does NOT start the
 # backend app — run ./start-backend.sh for that.
 #
-# Usage:  ./setup.sh
+# Usage:  ./setup.sh [--scale]
 # Then:   ./start-backend.sh   (start the mock APIs + agent web API)
 #         ./start-ui.sh        (start the web UI)
 set -euo pipefail
