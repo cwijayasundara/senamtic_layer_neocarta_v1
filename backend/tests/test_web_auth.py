@@ -66,3 +66,29 @@ def test_chat_endpoint_rate_limits(monkeypatch):
     client = TestClient(app_mod.app)
     assert client.post("/chat", json={"question": "q"}).status_code == 200
     assert client.post("/chat", json={"question": "q"}).status_code == 429
+
+
+def test_rate_limiter_bounds_map_by_sweeping_expired():
+    clock = {"t": 0.0}
+    rl = auth_mod.RateLimiter(per_min=100, now=lambda: clock["t"], max_keys=2)
+    rl.allow("a"); rl.allow("b")          # 2 entries at t=0
+    clock["t"] = 61.0                      # both windows now expired
+    rl.allow("c")                          # len>=max_keys triggers sweep of a,b
+    assert len(rl._hits) == 1 and "c" in rl._hits   # bounded, expired keys evicted
+
+
+def test_rate_limit_auth_off_ignores_api_key_header(monkeypatch):
+    """With auth disabled, rotating X-API-Key must NOT mint new buckets (bypass guard)."""
+    from fastapi.testclient import TestClient
+    from semantic_layer.web import app as app_mod
+    from semantic_layer.web import auth as auth_module
+    monkeypatch.setattr(app_mod.settings, "api_keys", "", raising=False)
+    monkeypatch.setattr(auth_module.settings, "api_keys", "", raising=False)
+    monkeypatch.setattr(auth_module.settings, "rate_limit_per_min", 1, raising=False)
+    monkeypatch.setattr(auth_module, "_rate_limiter",
+                        auth_module.RateLimiter(per_min=1, now=lambda: 0.0))
+    monkeypatch.setattr(app_mod, "stream_chat_events", lambda q: iter([{"type": "answer", "content": "x"}]))
+    client = TestClient(app_mod.app)
+    assert client.post("/chat", json={"question": "q"}, headers={"X-API-Key": "aaa"}).status_code == 200
+    # different header value, same client host -> same bucket -> blocked (no bypass)
+    assert client.post("/chat", json={"question": "q"}, headers={"X-API-Key": "bbb"}).status_code == 429
