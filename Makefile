@@ -1,4 +1,4 @@
-.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest ask serve-web scale-seed scale-ingest eval eval-baseline scale-teardown setup setup-baseline
+.PHONY: up down seed seed-postgres seed-sqlite test install serve-apis ingest ask serve-web scale-seed scale-ingest eval eval-baseline scale-teardown setup setup-baseline deps
 
 install:
 	cd backend && pip install -e ".[dev]"
@@ -8,17 +8,25 @@ install:
 # venv. Default provisions the full SCALE catalog (~1000 distractor tables + scaled
 # core); needs OPENAI_API_KEY in backend/.env for routing embeddings.
 # Use `make setup-baseline` for the small core-only demo (40 customers, ~16 tables).
-setup: up
+# Create backend/.venv if missing and install deps into it. Robust to a pip-less
+# venv (e.g. one created by `uv venv`): prefer uv, else bootstrap pip via ensurepip.
+deps:
 	cd backend && test -x .venv/bin/python || python3 -m venv .venv
-	cd backend && .venv/bin/pip install --quiet -e ".[dev]"
+	cd backend && if command -v uv >/dev/null 2>&1; then \
+		uv pip install --quiet --python .venv/bin/python -e ".[dev]"; \
+	else \
+		.venv/bin/python -m pip --version >/dev/null 2>&1 || .venv/bin/python -m ensurepip --upgrade >/dev/null 2>&1 \
+			|| { echo "ERROR: .venv has no pip and ensurepip failed; install uv or recreate: rm -rf backend/.venv && python3 -m venv backend/.venv" >&2; exit 1; }; \
+		.venv/bin/python -m pip install --quiet --upgrade pip && .venv/bin/python -m pip install --quiet -e ".[dev]"; \
+	fi
+
+setup: up deps
 	cd backend && SCALE_MODE=true .venv/bin/python -m data.seed_scale
 	cd backend && .venv/bin/python -m data.seed_sqlite
 	cd backend && SCALE_MODE=true SCHEMA_ROUTING_ENABLED=true FAKE_EMBEDDINGS=true .venv/bin/python -m semantic_layer.ingest.pipeline
 	@echo "==> Setup complete (scale catalog: ~1000 tables). Next: ./start-backend.sh  then  ./start-ui.sh"
 
-setup-baseline: up
-	cd backend && test -x .venv/bin/python || python3 -m venv .venv
-	cd backend && .venv/bin/pip install --quiet -e ".[dev]"
+setup-baseline: up deps
 	cd backend && .venv/bin/python -m data.seed_postgres && .venv/bin/python -m data.seed_sqlite
 	cd backend && .venv/bin/python -m semantic_layer.ingest.pipeline
 	@echo "==> Baseline setup complete (~16 tables). Next: ./start-backend.sh  then  ./start-ui.sh"
