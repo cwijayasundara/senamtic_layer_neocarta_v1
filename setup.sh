@@ -43,6 +43,20 @@ else
   warn '  echo "OPENAI_API_KEY=sk-..." >> backend/.env'
 fi
 
+# --- arg parsing ------------------------------------------------------------
+SCALE=false
+for arg in "$@"; do
+  case "$arg" in
+    --scale) SCALE=true ;;
+    -h|--help)
+      printf "Usage: %s [--scale]\n" "$(basename "$0")"
+      printf "  --scale   provision the scale catalog (1000 distractor tables + scaled core)\n"
+      printf "            instead of the baseline core; needs OPENAI_API_KEY for routing embeddings\n"
+      exit 0 ;;
+    *) printf "Unknown option: %s (try --help)\n" "$arg" >&2; exit 2 ;;
+  esac
+done
+
 # --- 3. Docker data stores --------------------------------------------------
 say "Starting Docker services (Neo4j + Postgres)"
 docker compose up -d
@@ -71,11 +85,27 @@ else
 fi
 
 # --- 5. seed the databases --------------------------------------------------
-say "Seeding databases (Postgres sales schema + SQLite financials/org)"
-( cd "$BACKEND" && "$PY" -m data.seed_postgres && "$PY" -m data.seed_sqlite )
+if [ "$SCALE" = "true" ]; then
+  say "Seeding the SCALE catalog (core at scale volume + 1000 distractor tables) + SQLite"
+  ( cd "$BACKEND" && SCALE_MODE=true "$PY" -m data.seed_scale )
+  ( cd "$BACKEND" && "$PY" -m data.seed_sqlite )
+else
+  say "Seeding databases (Postgres sales schema + SQLite financials/org)"
+  ( cd "$BACKEND" && "$PY" -m data.seed_postgres && "$PY" -m data.seed_sqlite )
+fi
 
 # --- 6. ingest the knowledge graph -----------------------------------------
-if [ "$HAVE_KEY" = "1" ]; then
+if [ "$SCALE" = "true" ]; then
+  if [ "$HAVE_KEY" = "1" ]; then
+    say "Ingesting the SCALE catalog (1072 tables + table embeddings; schema routing on)"
+    ( cd "$BACKEND" && SCALE_MODE=true SCHEMA_ROUTING_ENABLED=true FAKE_EMBEDDINGS=true \
+        "$PY" -m semantic_layer.ingest.pipeline )
+  else
+    warn "No OPENAI_API_KEY — scale routing needs table embeddings; ingesting metadata only (keyword routing fallback)."
+    ( cd "$BACKEND" && SCALE_MODE=true SCHEMA_ROUTING_ENABLED=true \
+        "$PY" -c "from semantic_layer.ingest.pipeline import run_ingest; print(run_ingest(with_llm=False, reset=True))" )
+  fi
+elif [ "$HAVE_KEY" = "1" ]; then
   say "Ingesting the knowledge graph (metadata + documents + entities + glossary + embeddings)"
   ( cd "$BACKEND" && "$PY" -m semantic_layer.ingest.pipeline )
 else
