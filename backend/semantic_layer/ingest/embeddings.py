@@ -7,6 +7,7 @@ from neo4j import Driver
 
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_openai_client
+from semantic_layer.ingest.table_descriptions import TABLE_DESCRIPTIONS
 
 
 def fake_vector(text: str, dim: int) -> list[float]:
@@ -98,12 +99,15 @@ def _ensure_chunk_vector_index(driver: Driver) -> None:
         )
 
 
-def _table_embed_text(name: str, cols: list[str]) -> str:
-    """Text embedded per table: its name plus column names — the discriminating
-    signal we have (introspected tables carry no description)."""
+def _table_embed_text(name: str, cols: list[str], description: str = "") -> str:
+    """Text embedded per table: name, an optional curated description, plus column
+    names. With description='' the output is the prior name+columns form."""
+    parts = [name]
+    if description:
+        parts.append(description)
     if cols:
-        return f"{name} — columns: {', '.join(cols)}"
-    return name
+        parts.append(f"columns: {', '.join(cols)}")
+    return " — ".join(parts)
 
 
 def embed_tables(driver: Driver, batch: int = 64) -> None:
@@ -124,7 +128,10 @@ def embed_tables(driver: Driver, batch: int = 64) -> None:
         ).data()
         for i in range(0, len(rows), batch):
             window = rows[i:i + batch]
-            texts = [_table_embed_text(r["name"], r["cols"]) for r in window]
+            texts = [
+                _table_embed_text(r["name"], r["cols"], TABLE_DESCRIPTIONS.get(r["id"], ""))
+                for r in window
+            ]
             vectors = client.embeddings.create(
                 model=settings.embedding_model, input=texts,
                 dimensions=settings.embedding_dimensions,
