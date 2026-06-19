@@ -138,7 +138,7 @@ def extract_entities_for_chunks(chunk_rows: list[dict]) -> dict[str, list[dict]]
 def _run_llm_stages(driver, bundles) -> None:
     from semantic_layer.ingest.glossary import generate_business_terms, load_business_terms
     from semantic_layer.ingest.doc_graph import load_entities, bridge_entities_to_values
-    from semantic_layer.ingest.embeddings import embed_chunks, embed_metadata_nodes
+    from semantic_layer.ingest.embeddings import embed_chunks, embed_tables
 
     columns = [
         {"column_id": c.id, "name": c.name, "table": c.id.split(".")[-2]}
@@ -158,7 +158,7 @@ def _run_llm_stages(driver, bundles) -> None:
     bridge_entities_to_values(driver)
 
     embed_chunks(driver)
-    embed_metadata_nodes(driver)
+    embed_tables(driver)
 
 
 if __name__ == "__main__":

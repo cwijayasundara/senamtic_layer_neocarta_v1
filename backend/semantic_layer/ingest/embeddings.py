@@ -5,8 +5,6 @@ import struct
 
 from neo4j import Driver
 
-from neocarta.enrichment.embeddings import OpenAIEmbeddingsConnector
-
 from semantic_layer.config import settings
 from semantic_layer.ingest.llm import get_openai_client
 
@@ -158,17 +156,3 @@ def _ensure_table_vector_index(driver: Driver) -> None:
             }}}}
             """
         )
-
-
-def embed_metadata_nodes(driver: Driver) -> None:
-    """Embed Table/Column/BusinessTerm nodes via NeoCarta's OpenAI connector."""
-    if settings.fake_embeddings:
-        return  # routing uses keyword catalog search; skip costly metadata embeds
-    connector = OpenAIEmbeddingsConnector(
-        driver,
-        client=get_openai_client(),
-        embedding_model=settings.embedding_model,
-        dimensions=settings.embedding_dimensions,
-        database_name=settings.neo4j_database,
-    )
-    connector.run()
