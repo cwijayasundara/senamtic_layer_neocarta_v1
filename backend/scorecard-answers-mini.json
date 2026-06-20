@@ -1,0 +1,444 @@
+{
+  "questions": [
+    {
+      "id": "agg-total-revenue",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.order_line"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 3166.7,
+        "answer": 18530.6,
+        "total": 21697.3
+      }
+    },
+    {
+      "id": "agg-customer-count",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 0.5,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.customer",
+        "table:scale.scale_finance_ops.customer_invoice"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 3580.8,
+        "answer": 12726.3,
+        "total": 16307.1
+      }
+    },
+    {
+      "id": "agg-product-count",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 0.5,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.product",
+        "table:sales_pg.sales.product_line"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 6626.9,
+        "answer": 9115.8,
+        "total": 15742.6
+      }
+    },
+    {
+      "id": "agg-order-count",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.sales_order"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2050.5,
+        "answer": 8163.1,
+        "total": 10213.6
+      }
+    },
+    {
+      "id": "join-revenue-by-region",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 0.3333333333333333,
+        "recall": 0.2,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.region",
+        "table:scale.scale_finance_ops.quarterly_revenue",
+        "table:org.main.location"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2288.1,
+        "answer": 54943.0,
+        "total": 57231.1
+      }
+    },
+    {
+      "id": "join-revenue-by-industry",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 1.0,
+        "recall": 0.25,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.industry"
+      ],
+      "answer_ok": false,
+      "latency_ms": {
+        "route": 2506.7,
+        "answer": 13149.1,
+        "total": 15655.8
+      }
+    },
+    {
+      "id": "join-revenue-by-segment",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 0.3333333333333333,
+        "recall": 0.25,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.segment",
+        "table:scale.scale_finance_ops.quarterly_revenue",
+        "table:financials.main.income_statement"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 3029.0,
+        "answer": 11100.9,
+        "total": 14129.9
+      }
+    },
+    {
+      "id": "join-revenue-by-product-line",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.order_line",
+        "table:sales_pg.sales.product_line",
+        "table:sales_pg.sales.product"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2405.9,
+        "answer": 13309.3,
+        "total": 15715.2
+      }
+    },
+    {
+      "id": "join-top-customer",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 1.0,
+        "recall": 0.3333333333333333,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.sales_order"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2800.0,
+        "answer": 17801.0,
+        "total": 20601.0
+      }
+    },
+    {
+      "id": "period-revenue-fy2025",
+      "category": "period-filter",
+      "routing": {
+        "precision": 0.3333333333333333,
+        "recall": 0.3333333333333333,
+        "hit": false
+      },
+      "routed": [
+        "table:financials.main.income_statement",
+        "table:sales_pg.sales.fiscal_period",
+        "table:scale.scale_finance_ops.quarterly_revenue"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2659.3,
+        "answer": 10911.2,
+        "total": 13570.5
+      }
+    },
+    {
+      "id": "period-orders-by-quarter",
+      "category": "period-filter",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:sales_pg.sales.sales_order",
+        "table:sales_pg.sales.fiscal_period"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2116.7,
+        "answer": 14009.8,
+        "total": 16126.5
+      }
+    },
+    {
+      "id": "period-revenue-trend",
+      "category": "period-filter",
+      "routing": {
+        "precision": 0.5,
+        "recall": 0.3333333333333333,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.fiscal_period",
+        "table:scale.scale_finance_ops.quarterly_revenue"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2515.9,
+        "answer": 11884.2,
+        "total": 14400.2
+      }
+    },
+    {
+      "id": "fin-net-income",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:financials.main.income_statement"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2489.8,
+        "answer": 9425.0,
+        "total": 11914.8
+      }
+    },
+    {
+      "id": "fin-stock-high",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:financials.main.stock_price"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2357.2,
+        "answer": 14124.0,
+        "total": 16481.2
+      }
+    },
+    {
+      "id": "org-headcount-by-dept",
+      "category": "multi-table-join",
+      "routing": {
+        "precision": 0.6666666666666666,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "scale.scale_hr.department",
+        "table:org.main.department",
+        "table:org.main.headcount"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2061.8,
+        "answer": 412067.7,
+        "total": 414129.5
+      }
+    },
+    {
+      "id": "org-locations",
+      "category": "single-table-agg",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:org.main.location"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 4097.5,
+        "answer": 12564.5,
+        "total": 16662.0
+      }
+    },
+    {
+      "id": "bridge-open-opps-by-account",
+      "category": "cross-source-bridge",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:crm.api.GET /opportunities",
+        "table:crm.api.GET /accounts"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 3043.9,
+        "answer": 17131.4,
+        "total": 20175.3
+      }
+    },
+    {
+      "id": "bridge-revenue-vs-tickets",
+      "category": "cross-source-bridge",
+      "routing": {
+        "precision": 0.5,
+        "recall": 0.3333333333333333,
+        "hit": false
+      },
+      "routed": [
+        "table:itsm.api.GET /tickets",
+        "table:itsm.api.GET /tickets/{ticket_id}"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2864.1,
+        "answer": 15364.9,
+        "total": 18229.0
+      }
+    },
+    {
+      "id": "bridge-gpu-usage-by-account",
+      "category": "cross-source-bridge",
+      "routing": {
+        "precision": 1.0,
+        "recall": 0.5,
+        "hit": false
+      },
+      "routed": [
+        "table:dgx.api.GET /usage"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2351.8,
+        "answer": 9655.7,
+        "total": 12007.5
+      }
+    },
+    {
+      "id": "doc-revenue-drivers",
+      "category": "document-rag",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [
+        "table:financials.main.income_statement"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2632.8,
+        "answer": 11702.1,
+        "total": 14334.9
+      }
+    },
+    {
+      "id": "doc-risk-factors",
+      "category": "document-rag",
+      "routing": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "hit": true
+      },
+      "routed": [],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2326.6,
+        "answer": 10853.5,
+        "total": 13180.1
+      }
+    },
+    {
+      "id": "nearmiss-sales-revenue",
+      "category": "near-miss-routing",
+      "routing": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.sales_order",
+        "table:financials.main.income_statement"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2355.4,
+        "answer": 10340.6,
+        "total": 12696.0
+      }
+    },
+    {
+      "id": "nearmiss-customer-orders",
+      "category": "near-miss-routing",
+      "routing": {
+        "precision": 1.0,
+        "recall": 0.5,
+        "hit": false
+      },
+      "routed": [
+        "table:sales_pg.sales.sales_order"
+      ],
+      "answer_ok": true,
+      "latency_ms": {
+        "route": 2158.7,
+        "answer": 20983.2,
+        "total": 23141.9
+      }
+    }
+  ],
+  "summary": {
+    "n": 23,
+    "routing_hit_rate": 0.565,
+    "routing_precision": 0.768,
+    "routing_recall": 0.697,
+    "answer_accuracy": 0.957,
+    "latency_p50_ms": 15742.6,
+    "latency_p95_ms": 57231.1,
+    "embedding_mode": "openai",
+    "routing_only": false
+  }
+}
