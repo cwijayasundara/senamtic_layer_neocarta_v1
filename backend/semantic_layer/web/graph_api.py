@@ -100,17 +100,19 @@ def get_schema_graph(source: str | None = None, max_chunks: int | None = None) -
         """
         MATCH (c:Chunk)-[:MENTIONS]->(e:Entity)
         WHERE c.id IN $chunk_ids
-        WITH e, collect(DISTINCT c.id) AS chunk_ids
-        WHERE size(chunk_ids) >= 2 OR exists((e)-[:REFERS_TO]->(:Value))
+        OPTIONAL MATCH (e)-[:INSTANCE_OF]->(s:OntologySubtype)
+        WITH e, s, collect(DISTINCT c.id) AS chunk_ids
+        WHERE size(chunk_ids) >= 2 OR exists((e)-[:REFERS_TO]->(:Value)) OR s IS NOT NULL
         UNWIND chunk_ids AS chunk_id
-        RETURN chunk_id, e.norm AS norm, e.name AS name, e.label AS label
+        RETURN chunk_id, e.norm AS norm, e.name AS name, e.label AS label, s.name AS subtype
         """,
         chunk_ids=chunk_ids, database_=settings.neo4j_database,
     ).records
     for r in ent_rows:
         eid = f"entity:{r['norm']}"
         nodes.setdefault(eid, {"id": eid, "label": r["name"], "kind": "entity",
-                               "source": "documents", "entityType": r["label"]})
+                               "source": "documents", "entityType": r["label"],
+                               "subtype": r["subtype"]})
         edges.append({"source": r["chunk_id"], "target": eid, "type": "MENTIONS"})
 
     bridge_rows = driver().execute_query(

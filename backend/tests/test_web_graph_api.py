@@ -63,3 +63,31 @@ def test_graph_endpoint_bridges_documents_to_catalog(neo4j_driver):
     assert any(e["type"] == "REFERS_TO" for e in g["edges"])
     assert any(e["type"] == "HAS_VALUE"
                and e["target"] == "table:sales_pg.sales.architecture" for e in g["edges"])
+
+
+@pytest.mark.neo4j
+def test_schema_graph_includes_entity_subtype(neo4j_driver):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+    from semantic_layer.web.graph_api import get_schema_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (:Document {id:'doc:pr', title:'PR'})
+            CREATE (:Chunk {id:'c1', doc_id:'doc:pr', ordinal:0, text:'Blackwell drove growth.'})
+            CREATE (:Entity {norm:'blackwell', name:'Blackwell', label:'Object'})
+            CREATE (:OntologySubtype {name:'ProductArchitecture', base_type:'Object'})
+            WITH 1 AS _
+            MATCH (d:Document {id:'doc:pr'}), (c:Chunk {id:'c1'}),
+                  (e:Entity {norm:'blackwell'}), (s:OntologySubtype {name:'ProductArchitecture'})
+            CREATE (d)-[:HAS_CHUNK]->(c)
+            CREATE (c)-[:MENTIONS]->(e)
+            CREATE (e)-[:INSTANCE_OF]->(s)
+            """
+        )
+    graph = get_schema_graph(source="documents", max_chunks=10)
+    entity = next(n for n in graph["nodes"] if n["id"] == "entity:blackwell")
+    assert entity["entityType"] == "Object"
+    assert entity["subtype"] == "ProductArchitecture"
