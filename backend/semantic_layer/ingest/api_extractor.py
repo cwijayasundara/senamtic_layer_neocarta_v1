@@ -5,7 +5,7 @@ Endpoint (method+path) -> Table
 Response-schema property -> Column
 """
 
-from neocarta.data_model.rdbms import (
+from neocarta.data_model.schema.rdbms import (
     Database, Schema, Table, Column, HasSchema, HasTable, HasColumn,
 )
 

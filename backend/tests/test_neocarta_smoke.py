@@ -1,6 +1,6 @@
 import pytest
 
-from neocarta.data_model.rdbms import (
+from neocarta.data_model.schema.rdbms import (
     Database, Schema, Table, Column, HasSchema, HasTable, HasColumn, References,
 )
 from neocarta.ingest.rdbms import Neo4jRDBMSLoader

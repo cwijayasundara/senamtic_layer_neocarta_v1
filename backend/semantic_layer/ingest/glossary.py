@@ -4,7 +4,7 @@ import json
 
 from neo4j import Driver
 
-from neocarta.data_model.rdbms import BusinessTerm
+from neocarta.data_model.glossary import BusinessTerm
 from neocarta.ingest.rdbms import Neo4jRDBMSLoader
 
 from semantic_layer.config import settings
