@@ -142,7 +142,7 @@ def test_load_entities_skips_invalid_subtype_base_mismatch(neo4j_driver):
 
 
 @pytest.mark.neo4j
-def test_load_entities_legacy_reload_clears_stale_subtype(neo4j_driver):
+def test_load_entities_legacy_reload_preserves_existing_subtype(neo4j_driver):
     from semantic_layer.ingest.ontology import load_ontology
 
     reset_graph(neo4j_driver)
@@ -178,9 +178,50 @@ def test_load_entities_legacy_reload_clears_stale_subtype(neo4j_driver):
         row = session.run(
             """
             MATCH (c:Chunk {id:'doc:refresh:chunk:0'})-[m:MENTIONS]->(e:Entity {norm:'blackwell'})
-            OPTIONAL MATCH (e)-[r:INSTANCE_OF]->(:OntologySubtype)
-            RETURN count(DISTINCT m) AS mentions, count(r) AS subtype_edges
+            OPTIONAL MATCH (e)-[r:INSTANCE_OF]->(s:OntologySubtype)
+            RETURN count(DISTINCT m) AS mentions, count(r) AS subtype_edges, collect(s.name) AS subtypes
             """
         ).single()
     assert row["mentions"] == 1
-    assert row["subtype_edges"] == 0
+    assert row["subtype_edges"] == 1
+    assert row["subtypes"] == ["ProductArchitecture"]
+
+
+@pytest.mark.neo4j
+def test_load_entities_untyped_later_chunk_preserves_existing_subtype(neo4j_driver):
+    from semantic_layer.ingest.ontology import load_ontology
+
+    reset_graph(neo4j_driver)
+    load_ontology(neo4j_driver)
+    load_document(neo4j_driver, {
+        "doc_id": "doc:multi", "title": "multi", "path": "/tmp/multi.pdf", "num_pages": 1,
+        "chunks": [
+            {"chunk_id": "doc:multi:chunk:0", "doc_id": "doc:multi", "ordinal": 0,
+             "text": "Blackwell architecture launched."},
+            {"chunk_id": "doc:multi:chunk:1", "doc_id": "doc:multi", "ordinal": 1,
+             "text": "Blackwell was mentioned again."},
+        ],
+    })
+    load_entities(neo4j_driver, "doc:multi:chunk:0", [
+        {
+            "name": "Blackwell",
+            "label": "Object",
+            "base_type": "Object",
+            "subtype": "ProductArchitecture",
+        }
+    ])
+    load_entities(neo4j_driver, "doc:multi:chunk:1", [
+        {"name": "Blackwell", "label": "Object"},
+    ])
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        row = session.run(
+            """
+            MATCH (e:Entity {norm:'blackwell'})
+            OPTIONAL MATCH (e)-[r:INSTANCE_OF]->(s:OntologySubtype)
+            RETURN count(r) AS subtype_edges, collect(s.name) AS subtypes
+            """
+        ).single()
+
+    assert row["subtype_edges"] == 1
+    assert row["subtypes"] == ["ProductArchitecture"]

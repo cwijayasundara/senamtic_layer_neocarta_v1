@@ -96,16 +96,15 @@ def load_entities(driver: Driver, chunk_id: str, entities: list[dict]) -> None:
                   e.evidence = row.evidence
             MERGE (c)-[:MENTIONS]->(e)
             WITH e, row
-            OPTIONAL MATCH (e)-[old:INSTANCE_OF]->(:OntologySubtype)
-            DELETE old
-            WITH e, row
             OPTIONAL MATCH (s:OntologySubtype)
             WHERE row.subtype IS NOT NULL
               AND s.name = row.subtype
               AND s.base_type = row.label
-            FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END |
-              MERGE (e)-[:INSTANCE_OF]->(s)
-            )
+            WITH e, s
+            WHERE s IS NOT NULL
+            OPTIONAL MATCH (e)-[old:INSTANCE_OF]->(:OntologySubtype)
+            DELETE old
+            MERGE (e)-[:INSTANCE_OF]->(s)
             """,
             chunk_id=chunk_id, rows=rows,
         )

@@ -214,6 +214,59 @@ def test_load_facts_is_idempotent_and_links_chunk(neo4j_driver):
 
 
 @pytest.mark.neo4j
+def test_load_facts_replaces_stale_chunk_facts(neo4j_driver):
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run("CREATE (:Chunk {id: 'c1'})")
+
+    assert load_facts(neo4j_driver, "c1", clean_facts([
+        {"subject": "Blackwell", "predicate": "drove", "object": "growth"}
+    ])) == 1
+    assert load_facts(neo4j_driver, "c1", clean_facts([
+        {"subject": "Blackwell", "predicate": "enabled", "object": "AI"}
+    ])) == 1
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        row = session.run(
+            """
+            MATCH (:Chunk {id: 'c1'})-[:HAS_FACT]->(f:Fact)
+            RETURN count(f) AS linked, collect(f.text) AS texts
+            """
+        ).single()
+        total = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()["count"]
+
+    assert row["linked"] == 1
+    assert row["texts"] == ["Blackwell / enabled / AI"]
+    assert total == 1
+
+
+@pytest.mark.neo4j
+def test_load_facts_empty_rows_clear_prior_chunk_facts(neo4j_driver):
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run("CREATE (:Chunk {id: 'c1'})")
+    assert load_facts(neo4j_driver, "c1", clean_facts([
+        {"subject": "Blackwell", "predicate": "drove", "object": "growth"}
+    ])) == 1
+
+    assert load_facts(neo4j_driver, "c1", []) == 0
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        row = session.run(
+            """
+            MATCH (:Chunk {id: 'c1'})
+            OPTIONAL MATCH (:Chunk {id: 'c1'})-[r:HAS_FACT]->(f:Fact)
+            RETURN count(r) AS links, count(f) AS linked_facts
+            """
+        ).single()
+        total = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()["count"]
+
+    assert row["links"] == 0
+    assert row["linked_facts"] == 0
+    assert total == 0
+
+
+@pytest.mark.neo4j
 def test_load_facts_missing_chunk_returns_zero_and_creates_no_facts(neo4j_driver):
     reset_graph(neo4j_driver)
     facts = clean_facts([
