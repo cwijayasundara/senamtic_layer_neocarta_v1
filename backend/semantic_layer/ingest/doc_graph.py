@@ -96,6 +96,9 @@ def load_entities(driver: Driver, chunk_id: str, entities: list[dict]) -> None:
                   e.evidence = row.evidence
             MERGE (c)-[:MENTIONS]->(e)
             WITH e, row
+            OPTIONAL MATCH (e)-[old:INSTANCE_OF]->(:OntologySubtype)
+            DELETE old
+            WITH e, row
             OPTIONAL MATCH (s:OntologySubtype)
             WHERE row.subtype IS NOT NULL
               AND s.name = row.subtype

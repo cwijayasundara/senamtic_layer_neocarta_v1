@@ -139,3 +139,48 @@ def test_load_entities_skips_invalid_subtype_base_mismatch(neo4j_driver):
             """
         ).single()["count"]
     assert count == 0
+
+
+@pytest.mark.neo4j
+def test_load_entities_legacy_reload_clears_stale_subtype(neo4j_driver):
+    from semantic_layer.ingest.ontology import load_ontology
+
+    reset_graph(neo4j_driver)
+    load_ontology(neo4j_driver)
+    load_document(neo4j_driver, {
+        "doc_id": "doc:refresh", "title": "refresh", "path": "/tmp/refresh.pdf", "num_pages": 1,
+        "chunks": [{"chunk_id": "doc:refresh:chunk:0", "doc_id": "doc:refresh", "ordinal": 0,
+                    "text": "Blackwell refreshed."}],
+    })
+    load_entities(neo4j_driver, "doc:refresh:chunk:0", [
+        {
+            "name": "Blackwell",
+            "label": "Object",
+            "base_type": "Object",
+            "subtype": "ProductArchitecture",
+        }
+    ])
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        initial_count = session.run(
+            """
+            MATCH (:Entity {norm:'blackwell'})-[r:INSTANCE_OF]->(:OntologySubtype)
+            RETURN count(r) AS count
+            """
+        ).single()["count"]
+    assert initial_count == 1
+
+    load_entities(neo4j_driver, "doc:refresh:chunk:0", [
+        {"name": "Blackwell", "label": "Object"},
+    ])
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        row = session.run(
+            """
+            MATCH (c:Chunk {id:'doc:refresh:chunk:0'})-[m:MENTIONS]->(e:Entity {norm:'blackwell'})
+            OPTIONAL MATCH (e)-[r:INSTANCE_OF]->(:OntologySubtype)
+            RETURN count(DISTINCT m) AS mentions, count(r) AS subtype_edges
+            """
+        ).single()
+    assert row["mentions"] == 1
+    assert row["subtype_edges"] == 0
