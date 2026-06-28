@@ -24,6 +24,7 @@ class _FakeModel:
 class _FakeSession:
     def __init__(self):
         self.params = None
+        self.chunk_exists = True
 
     def __enter__(self):
         return self
@@ -31,13 +32,25 @@ class _FakeSession:
     def __exit__(self, *_exc):
         return None
 
-    def run(self, _query, **params):
+    def run(self, query, **params):
+        if "RETURN count(c) AS count" in query:
+            return _FakeResult({"count": 1 if self.chunk_exists else 0})
         self.params = params
+        return _FakeResult({"loaded": len(params.get("rows", []))})
+
+
+class _FakeResult:
+    def __init__(self, row):
+        self._row = row
+
+    def single(self):
+        return self._row
 
 
 class _FakeDriver:
-    def __init__(self):
+    def __init__(self, chunk_exists=True):
         self.session_obj = _FakeSession()
+        self.session_obj.chunk_exists = chunk_exists
 
     def session(self, database=None):
         return self.session_obj
@@ -150,6 +163,30 @@ def test_load_facts_skips_malformed_direct_rows():
     assert driver.session_obj.params["rows"][0]["text"] == "Blackwell / drove / growth"
 
 
+def test_load_facts_normalizes_malformed_optional_direct_fields():
+    driver = _FakeDriver()
+    rows = [
+        {
+            "subject": " Blackwell ",
+            "predicate": " drove ",
+            "object": " growth ",
+            "text": {"bad": "text"},
+            "confidence": 0.7,
+            "valid_from": ["FY2026-Q1"],
+            "valid_until": {"quarter": "FY2026-Q2"},
+        }
+    ]
+
+    assert load_facts(driver, "c1", rows) == 1
+    loaded = driver.session_obj.params["rows"][0]
+    assert loaded["subject"] == "Blackwell"
+    assert loaded["predicate"] == "drove"
+    assert loaded["object"] == "growth"
+    assert loaded["text"] == "Blackwell / drove / growth"
+    assert loaded["valid_from"] is None
+    assert loaded["valid_until"] is None
+
+
 @pytest.mark.neo4j
 def test_load_facts_is_idempotent_and_links_chunk(neo4j_driver):
     reset_graph(neo4j_driver)
@@ -172,6 +209,20 @@ def test_load_facts_is_idempotent_and_links_chunk(neo4j_driver):
     assert row["links"] == 1
     assert row["facts"] == 1
     assert row["texts"] == ["Blackwell / drove / growth"]
+
+
+@pytest.mark.neo4j
+def test_load_facts_missing_chunk_returns_zero_and_creates_no_facts(neo4j_driver):
+    reset_graph(neo4j_driver)
+    facts = clean_facts([
+        {"subject": "Blackwell", "predicate": "drove", "object": "growth"}
+    ])
+
+    assert load_facts(neo4j_driver, "c-missing", facts) == 0
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        count = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()["count"]
+    assert count == 0
 
 
 def test_extract_facts_batch_groups_per_chunk(monkeypatch):

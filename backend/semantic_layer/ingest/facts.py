@@ -109,15 +109,21 @@ def load_facts(driver: Driver, chunk_id: str, facts: list[dict]) -> int:
             "subject": subject,
             "predicate": predicate,
             "object": obj,
-            "text": fact.get("text") or f"{subject} / {predicate} / {obj}",
+            "text": f"{subject} / {predicate} / {obj}",
             "confidence": _confidence(fact.get("confidence")),
             "source_chunk_id": chunk_id,
-            "valid_from": fact.get("valid_from"),
-            "valid_until": fact.get("valid_until"),
+            "valid_from": _clean_optional_string(fact.get("valid_from")),
+            "valid_until": _clean_optional_string(fact.get("valid_until")),
         })
     if not rows:
         return 0
     with driver.session(database=settings.neo4j_database) as session:
+        chunk_count = session.run(
+            "MATCH (c:Chunk {id: $chunk_id}) RETURN count(c) AS count",
+            chunk_id=chunk_id,
+        ).single()["count"]
+        if chunk_count == 0:
+            return 0
         session.run(
             """
             MATCH (c:Chunk {id: $chunk_id})
