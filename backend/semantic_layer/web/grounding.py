@@ -59,6 +59,8 @@ def _grounded_set(sql_runs: list, api_calls: list, doc_texts: list) -> set[float
         for row in run.get("rows", []) or []:
             for cell in row:
                 grounded |= _cell_numbers(cell)
+    for call in api_calls:
+        grounded |= _cell_numbers(call.get("row_count"))
     blob = json.dumps([c.get("data") for c in api_calls], default=str)
     blob += " " + " ".join(doc_texts)   # full retrieved chunk text, not truncated quotes
     grounded |= _numbers_in_text(blob)

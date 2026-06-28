@@ -44,6 +44,12 @@ def test_grounded_by_api_data_or_doc_text():
     assert check_numeric_grounding("Revenue was $81,615M.", [], [], docs) == []
 
 
+def test_grounded_by_api_row_count_metadata():
+    api = [{"source": "dgx", "path": "/usage", "params": {}, "status": 200,
+            "row_count": 100, "data": []}]
+    assert check_numeric_grounding("The API returned 100 usage records overall.", [], api, []) == []
+
+
 def test_doc_number_beyond_display_truncation_is_grounded():
     # Real-world regression: the cited figure sits deep in a long chunk (past the
     # 280-char display-quote cutoff). Grounding must still see it via the full text.
