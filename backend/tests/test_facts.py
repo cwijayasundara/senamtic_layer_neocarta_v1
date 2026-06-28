@@ -182,6 +182,8 @@ def test_load_facts_normalizes_malformed_optional_direct_fields():
     assert loaded["subject"] == "Blackwell"
     assert loaded["predicate"] == "drove"
     assert loaded["object"] == "growth"
+    assert loaded["subject_norm"] == "blackwell"
+    assert loaded["object_norm"] == "growth"
     assert loaded["text"] == "Blackwell / drove / growth"
     assert loaded["valid_from"] is None
     assert loaded["valid_until"] is None
@@ -223,6 +225,28 @@ def test_load_facts_missing_chunk_returns_zero_and_creates_no_facts(neo4j_driver
     with neo4j_driver.session(database=settings.neo4j_database) as session:
         count = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()["count"]
     assert count == 0
+
+
+@pytest.mark.neo4j
+def test_link_facts_to_entities_and_values(neo4j_driver):
+    from semantic_layer.ingest.facts import link_facts
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (:Chunk {id:'c1', text:'Blackwell drove Data Center growth.'})
+            CREATE (:Entity {norm:'blackwell', name:'Blackwell', label:'Object'})
+            CREATE (:Value {norm:'data center', name:'Data Center'})
+            """
+        )
+    facts = clean_facts([{"subject": "Blackwell", "predicate": "drove", "object": "Data Center"}])
+    load_facts(neo4j_driver, "c1", facts)
+
+    counts = link_facts(neo4j_driver)
+
+    assert counts["subject_links"] == 1
+    assert counts["object_links"] == 1
 
 
 def test_extract_facts_batch_groups_per_chunk(monkeypatch):
