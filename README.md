@@ -11,7 +11,8 @@ It spans all three source types:
   supports 6+-table deep joins) and two SQLite databases (financials, org/headcount).
 - **Enterprise APIs** — four mock REST services (CRM, Support/ITSM, partner inventory,
   DGX Cloud telemetry).
-- **Documents** — NVIDIA press-release PDFs, parsed with **liteparse v2**.
+- **Documents** — NVIDIA press-release PDFs, parsed with **liteparse v2**, typed with a
+  small POLE+O ontology and atomic Fact triplets.
 
 A **deepagents** orchestrator (on OpenAI `gpt-5.4-mini`) routes each question via
 graph-backed tools and delegates to three subagents — **SQL** (grounded text-to-SQL),
@@ -27,8 +28,8 @@ took through the knowledge graph**.
                          ┌──────────────── Neo4j knowledge graph ────────────────┐
  Postgres (Docker) ─┐    │  Metadata layer (NeoCarta): Database→Schema→Table→     │
  SQLite × 2        ─┼──► │   Column  +  REFERENCES (FK)  +  BusinessTerm          │
- Mock APIs (OpenAPI)┤    │  Document layer: Document→Chunk→Entity (POLE+O)        │
- NVIDIA PDFs ───────┘    │  Bridge + vector / full-text indexes (hybrid search)  │
+ Mock APIs (OpenAPI)┤    │  Document layer: Document→Chunk→Entity→OntologySubtype │
+ NVIDIA PDFs ───────┘    │   + Fact triplets + vector / full-text hybrid search  │
    (liteparse v2)        └───────────────────────────────────────────────────────┘
                                                   ▲                    │
                             graph tools           │                    │ grounds
@@ -48,6 +49,14 @@ The semantic layer stores **metadata, not rows** — so the agent uses the graph
 *where* and *how* (which tables, which join path), then fetches real values live via SQL
 or REST. `get_join_path` turns a deep 6+-table join into a graph traversal over the FK
 edges, which the SQL subagent then executes.
+
+The document context graph uses a fixed **POLE+O** base ontology
+(`Person`, `Org`, `Location`, `Event`, `Object`) plus a small checked-in subtype catalog
+for NVIDIA-domain concepts such as product architectures, metrics, customers, regions,
+fiscal periods, and support incidents. Chunks also produce atomic `Fact` triplets
+(`subject / predicate / object`) that are embedded, text-searchable, linked back to
+matching entities or catalog values when possible, and exposed through `search_facts`
+and `neighbors`.
 
 ---
 
@@ -112,7 +121,7 @@ Stop everything: Ctrl-C the backend (or `kill $(cat logs/*.pid) 2>/dev/null` if 
 backend/            Python package (semantic_layer/) + tests (90 passing)
   semantic_layer/
     sources/ apis/  the data sources + 4 mock enterprise APIs
-    ingest/         liteparse parsing, NeoCarta extractors, entities, glossary, embeddings, pipeline
+    ingest/         liteparse parsing, NeoCarta extractors, POLE+O ontology, facts, glossary, embeddings, pipeline
     agent/          graph tools + sql/api/doc subagents + deepagents orchestrator
     web/            FastAPI: /sources, /graph, /chat (SSE)
   data/             deterministic NVIDIA-themed data generators + seeders
@@ -126,7 +135,7 @@ docker-compose.yml  Neo4j + Postgres
 
 ## How it was built
 
-Designed and implemented in five plans (full design + step-by-step plans under
+Designed and implemented in six plans (full design + step-by-step plans under
 `docs/superpowers/`):
 
 1. **Data Foundation** — Dockerized Postgres + SQLite with seeded, deep-join data.
@@ -135,6 +144,8 @@ Designed and implemented in five plans (full design + step-by-step plans under
    entities + LLM glossary + embeddings, as one idempotent pipeline.
 4. **deepagents Agent** — graph-backed tools + sql/api/doc subagents.
 5. **Web App** — FastAPI SSE + the animated-graph Next.js UI.
+6. **POLE+O Ontology Context Graph** — typed entity subtypes, atomic Facts, fact search,
+   and richer graph API payloads.
 
 ## Make targets
 
