@@ -14,10 +14,25 @@ def test_load_catalog_contains_fixed_poleo_base_types():
     catalog = load_catalog()
     assert set(catalog["base_types"]) == BASE_TYPES
     subtypes = {s["name"]: s["base_type"] for s in catalog["subtypes"]}
-    assert subtypes["ProductArchitecture"] == "Object"
-    assert subtypes["Customer"] == "Org"
-    assert subtypes["Region"] == "Location"
-    assert subtypes["FiscalPeriod"] == "Event"
+    assert subtypes == {
+        "Product": "Object",
+        "ProductArchitecture": "Object",
+        "Technology": "Object",
+        "Metric": "Object",
+        "DocumentArtifact": "Object",
+        "Customer": "Org",
+        "Partner": "Org",
+        "BusinessUnit": "Org",
+        "Vendor": "Org",
+        "Region": "Location",
+        "Country": "Location",
+        "FiscalPeriod": "Event",
+        "PressRelease": "Event",
+        "SupportIncident": "Event",
+        "SalesTransaction": "Event",
+    }
+    assert all(s["domain"] == "nvidia_demo" for s in catalog["subtypes"])
+    assert all(s["description"] for s in catalog["subtypes"])
 
 
 def test_subtype_base_map_rejects_unknown_base_type():
@@ -33,7 +48,7 @@ def test_subtype_base_map_rejects_unknown_base_type():
 def test_load_ontology_merges_base_types_and_subtypes(neo4j_driver):
     reset_graph(neo4j_driver)
     count = load_ontology(neo4j_driver)
-    assert count >= 15
+    assert count == 15
     with neo4j_driver.session(database=settings.neo4j_database) as session:
         base_count = session.run("MATCH (t:OntologyType) RETURN count(t) AS c").single()["c"]
         subtype = session.run(
