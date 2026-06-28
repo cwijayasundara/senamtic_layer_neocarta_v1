@@ -51,6 +51,7 @@ def test_load_ontology_merges_base_types_and_subtypes(neo4j_driver):
     assert count == 15
     with neo4j_driver.session(database=settings.neo4j_database) as session:
         base_count = session.run("MATCH (t:OntologyType) RETURN count(t) AS c").single()["c"]
+        subtype_count = session.run("MATCH (s:OntologySubtype) RETURN count(s) AS c").single()["c"]
         subtype = session.run(
             """
             MATCH (s:OntologySubtype {name:'ProductArchitecture'})-[:SUBTYPE_OF]->(t:OntologyType)
@@ -58,5 +59,6 @@ def test_load_ontology_merges_base_types_and_subtypes(neo4j_driver):
             """
         ).single()
     assert base_count == 5
+    assert subtype_count == 15
     assert subtype["base_type"] == "Object"
     assert subtype["type_name"] == "Object"
