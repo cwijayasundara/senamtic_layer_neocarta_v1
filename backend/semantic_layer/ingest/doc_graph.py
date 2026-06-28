@@ -72,7 +72,14 @@ def link_document_period(driver: Driver, doc_id: str, period: dict | None) -> No
 def load_entities(driver: Driver, chunk_id: str, entities: list[dict]) -> None:
     """MERGE Entity {norm} nodes and Chunk-[:MENTIONS]->Entity edges for one chunk."""
     rows = [
-        {"name": e["name"], "label": e["label"], "norm": norm(e["name"])}
+        {
+            "name": e["name"],
+            "label": e.get("base_type") or e.get("label"),
+            "norm": norm(e["name"]),
+            "subtype": e.get("subtype"),
+            "confidence": e.get("confidence"),
+            "evidence": e.get("evidence"),
+        }
         for e in entities if (e.get("name") or "").strip()
     ]
     if not rows:
@@ -84,8 +91,18 @@ def load_entities(driver: Driver, chunk_id: str, entities: list[dict]) -> None:
             UNWIND $rows AS row
             MERGE (e:Entity {norm: row.norm})
               ON CREATE SET e.name = row.name
-              SET e.label = row.label
+              SET e.label = row.label,
+                  e.confidence = row.confidence,
+                  e.evidence = row.evidence
             MERGE (c)-[:MENTIONS]->(e)
+            WITH e, row
+            OPTIONAL MATCH (s:OntologySubtype)
+            WHERE row.subtype IS NOT NULL
+              AND s.name = row.subtype
+              AND s.base_type = row.label
+            FOREACH (_ IN CASE WHEN s IS NULL THEN [] ELSE [1] END |
+              MERGE (e)-[:INSTANCE_OF]->(s)
+            )
             """,
             chunk_id=chunk_id, rows=rows,
         )

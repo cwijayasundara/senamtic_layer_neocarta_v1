@@ -75,3 +75,67 @@ def test_bridge_links_token_overlap_but_not_substring(neo4j_driver):
         }
     assert linked.get("nvidia blackwell gpus") == "blackwell"   # token overlap bridged
     assert "indiana jones and the great circle" not in linked   # substring did NOT
+
+
+@pytest.mark.neo4j
+def test_load_entities_links_valid_subtype(neo4j_driver):
+    from semantic_layer.ingest.ontology import load_ontology
+
+    reset_graph(neo4j_driver)
+    load_ontology(neo4j_driver)
+    load_document(neo4j_driver, {
+        "doc_id": "doc:pr", "title": "pr", "path": "/tmp/pr.pdf", "num_pages": 1,
+        "chunks": [{"chunk_id": "doc:pr:chunk:0", "doc_id": "doc:pr", "ordinal": 0,
+                    "text": "Blackwell drove growth."}],
+    })
+    load_entities(neo4j_driver, "doc:pr:chunk:0", [
+        {
+            "name": "Blackwell",
+            "label": "Object",
+            "base_type": "Object",
+            "subtype": "ProductArchitecture",
+            "confidence": 0.91,
+            "evidence": "Blackwell",
+        }
+    ])
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        row = session.run(
+            """
+            MATCH (e:Entity {norm:'blackwell'})-[:INSTANCE_OF]->(s:OntologySubtype)
+            RETURN e.label AS label, e.confidence AS confidence, s.name AS subtype
+            """
+        ).single()
+    assert row["label"] == "Object"
+    assert row["subtype"] == "ProductArchitecture"
+    assert row["confidence"] == 0.91
+
+
+@pytest.mark.neo4j
+def test_load_entities_skips_invalid_subtype_base_mismatch(neo4j_driver):
+    from semantic_layer.ingest.ontology import load_ontology
+
+    reset_graph(neo4j_driver)
+    load_ontology(neo4j_driver)
+    load_document(neo4j_driver, {
+        "doc_id": "doc:bad", "title": "bad", "path": "/tmp/bad.pdf", "num_pages": 1,
+        "chunks": [{"chunk_id": "doc:bad:chunk:0", "doc_id": "doc:bad", "ordinal": 0,
+                    "text": "Blackwell appeared."}],
+    })
+    load_entities(neo4j_driver, "doc:bad:chunk:0", [
+        {
+            "name": "Blackwell",
+            "label": "Org",
+            "base_type": "Org",
+            "subtype": "ProductArchitecture",
+        }
+    ])
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        count = session.run(
+            """
+            MATCH (:Entity {norm:'blackwell'})-[r:INSTANCE_OF]->(:OntologySubtype)
+            RETURN count(r) AS count
+            """
+        ).single()["count"]
+    assert count == 0
