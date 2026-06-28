@@ -8,6 +8,7 @@ from langchain_core.tools import tool
 from semantic_layer.agent.driver import driver
 from semantic_layer.agent.sql_tools import _run, _SQLITE_SOURCES
 from semantic_layer.config import settings
+from semantic_layer.ingest.embeddings import embed_query
 
 _SQL_PLATFORMS = {"POSTGRESQL", "SQLITE"}
 # Catalog-derived SQL identifiers (column name, schema-qualified table) must look
@@ -225,7 +226,8 @@ def neighbors(name: str) -> str:
     this value, and which documents/chunks MENTION it. Use it to connect the two
     worlds — e.g. confirm that an architecture the press releases discuss is the same
     one you have sales rows for, then quantify it with the sql subagent. Returns JSON
-    {name, catalog:[{table_id, column, value}], documents:[{doc_id, chunks}]}."""
+    {name, catalog:[{table_id, column, value}], documents:[{doc_id, chunks}],
+    facts:[{id, text, subject, predicate, object, confidence, chunk_id}]}."""
     key = " ".join((name or "").lower().split())
     catalog = driver().execute_query(
         """
@@ -246,11 +248,69 @@ def neighbors(name: str) -> str:
         """,
         key=key, database_=settings.neo4j_database,
     ).records
+    facts = driver().execute_query(
+        """
+        MATCH (f:Fact)
+        WHERE f.subject_norm = $key OR f.object_norm = $key
+           OR toLower(coalesce(f.text, '')) CONTAINS $key
+        RETURN f.id AS id, f.text AS text, f.subject AS subject,
+               f.predicate AS predicate, f.object AS object,
+               f.confidence AS confidence, f.source_chunk_id AS chunk_id
+        ORDER BY confidence DESC LIMIT 10
+        """,
+        key=key, database_=settings.neo4j_database,
+    ).records
     return json.dumps({
         "name": name,
         "catalog": [dict(r) for r in catalog],
         "documents": [dict(r) for r in documents],
+        "facts": [dict(r) for r in facts],
     })
+
+
+@tool
+def search_facts(query: str, limit: int = 10) -> str:
+    """Search grounded extracted facts by semantic vector first, then text fallback.
+
+    Returns a JSON array of fact triplets with their source chunk provenance:
+    {id, subject, predicate, object, text, confidence, chunk_id, doc_id, ordinal, score}."""
+    try:
+        vector = embed_query(query)
+        records = driver().execute_query(
+            """
+            CALL db.index.vector.queryNodes('fact_embeddings', $limit, $vector) YIELD node, score
+            OPTIONAL MATCH (linked:Chunk)-[:HAS_FACT]->(node)
+            OPTIONAL MATCH (stored:Chunk {id: node.source_chunk_id})
+            WITH node AS f, score, coalesce(stored, linked) AS ch
+            OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(ch)
+            RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate,
+                   f.object AS object, f.text AS text, f.confidence AS confidence,
+                   coalesce(f.source_chunk_id, ch.id) AS chunk_id,
+                   coalesce(ch.doc_id, d.id) AS doc_id, ch.ordinal AS ordinal,
+                   score AS score
+            ORDER BY score DESC LIMIT $limit
+            """,
+            limit=limit, vector=vector, database_=settings.neo4j_database,
+        ).records
+    except Exception:  # noqa: BLE001 — fallback search keeps the agent usable without vectors/OpenAI
+        records = driver().execute_query(
+            """
+            MATCH (f:Fact)
+            WHERE toLower(coalesce(f.text, '')) CONTAINS toLower($query)
+            OPTIONAL MATCH (linked:Chunk)-[:HAS_FACT]->(f)
+            OPTIONAL MATCH (stored:Chunk {id: f.source_chunk_id})
+            WITH f, coalesce(stored, linked) AS ch
+            OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(ch)
+            RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate,
+                   f.object AS object, f.text AS text, f.confidence AS confidence,
+                   coalesce(f.source_chunk_id, ch.id) AS chunk_id,
+                   coalesce(ch.doc_id, d.id) AS doc_id, ch.ordinal AS ordinal,
+                   1.0 AS score
+            ORDER BY confidence DESC LIMIT $limit
+            """,
+            query=query, limit=limit, database_=settings.neo4j_database,
+        ).records
+    return json.dumps([dict(r) for r in records])
 
 
 @tool

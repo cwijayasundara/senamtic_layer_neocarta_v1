@@ -3,7 +3,7 @@ import json
 import pytest
 
 from semantic_layer.agent.graph_tools import (
-    list_sources, list_tables, resolve_value, neighbors, search_catalog,
+    list_sources, list_tables, resolve_value, neighbors, search_catalog, search_facts,
     get_table_schema,
 )
 
@@ -123,6 +123,73 @@ def test_neighbors_bridges_documents_to_catalog(neo4j_driver):
         (c["table_id"], c["column"]) for c in data["catalog"]
     }
     assert any(d["doc_id"] == "doc:pr" for d in data["documents"])
+
+
+@pytest.mark.neo4j
+def test_neighbors_includes_related_facts(neo4j_driver):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (:Fact {
+                id: 'f1',
+                subject: 'Blackwell',
+                subject_norm: 'blackwell',
+                predicate: 'drove',
+                object: 'Data Center growth',
+                object_norm: 'data center growth',
+                text: 'Blackwell / drove / Data Center growth',
+                confidence: 0.9,
+                source_chunk_id: 'c1'
+            })
+            """
+        )
+
+    data = json.loads(neighbors.invoke({"name": "Blackwell"}))
+
+    assert data["facts"][0]["text"] == "Blackwell / drove / Data Center growth"
+
+
+@pytest.mark.neo4j
+def test_search_facts_returns_grounded_triplets(neo4j_driver, monkeypatch):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (d:Document {id: 'doc:pr', title: 'Press release'})
+            CREATE (c:Chunk {id: 'c1', doc_id: 'doc:pr', ordinal: 0, text: 'Blackwell drove Data Center growth.'})
+            CREATE (d)-[:HAS_CHUNK]->(c)
+            WITH c
+            CREATE (f:Fact {
+                id: 'f1',
+                subject: 'Blackwell',
+                subject_norm: 'blackwell',
+                predicate: 'drove',
+                object: 'Data Center growth',
+                object_norm: 'data center growth',
+                text: 'Blackwell / drove / Data Center growth',
+                confidence: 0.9,
+                source_chunk_id: 'c1'
+            })
+            CREATE (c)-[:HAS_FACT]->(f)
+            """
+        )
+    monkeypatch.setattr(
+        "semantic_layer.agent.graph_tools.embed_query",
+        lambda query: (_ for _ in ()).throw(RuntimeError("skip vector search")),
+    )
+
+    data = json.loads(search_facts.invoke({"query": "Data Center growth"}))
+
+    assert data[0]["subject"] == "Blackwell"
+    assert data[0]["predicate"] == "drove"
+    assert data[0]["chunk_id"] == "c1"
 
 
 @pytest.mark.neo4j
