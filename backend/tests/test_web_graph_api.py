@@ -91,3 +91,45 @@ def test_schema_graph_includes_entity_subtype(neo4j_driver):
     entity = next(n for n in graph["nodes"] if n["id"] == "entity:blackwell")
     assert entity["entityType"] == "Object"
     assert entity["subtype"] == "ProductArchitecture"
+
+
+@pytest.mark.neo4j
+def test_schema_graph_dedupes_multi_subtype_entity_projection(neo4j_driver):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+    from semantic_layer.web.graph_api import get_schema_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (:Document {id:'doc:pr', title:'PR'})
+            CREATE (:Chunk {id:'c1', doc_id:'doc:pr', ordinal:0, text:'Blackwell drove growth.'})
+            CREATE (:Entity {norm:'blackwell', name:'Blackwell', label:'Object'})
+            CREATE (:OntologySubtype {name:'ProductArchitecture', base_type:'Object'})
+            CREATE (:OntologySubtype {name:'Product', base_type:'Object'})
+            WITH 1 AS _
+            MATCH (d:Document {id:'doc:pr'}), (c:Chunk {id:'c1'}),
+                  (e:Entity {norm:'blackwell'}),
+                  (product:OntologySubtype {name:'Product'}),
+                  (architecture:OntologySubtype {name:'ProductArchitecture'})
+            CREATE (d)-[:HAS_CHUNK]->(c)
+            CREATE (c)-[:MENTIONS]->(e)
+            CREATE (e)-[:INSTANCE_OF]->(product)
+            CREATE (e)-[:INSTANCE_OF]->(architecture)
+            """
+        )
+
+    graph = get_schema_graph(source="documents", max_chunks=10)
+
+    entities = [n for n in graph["nodes"] if n["id"] == "entity:blackwell"]
+    assert len(entities) == 1
+    assert entities[0]["subtype"] == "Product"
+
+    mentions = [
+        e for e in graph["edges"]
+        if e["source"] == "c1"
+        and e["target"] == "entity:blackwell"
+        and e["type"] == "MENTIONS"
+    ]
+    assert len(mentions) == 1
