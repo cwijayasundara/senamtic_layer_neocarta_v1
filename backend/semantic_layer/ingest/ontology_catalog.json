@@ -5,67 +5,67 @@
       "name": "Product",
       "base_type": "Object",
       "domain": "nvidia_demo",
-      "description": "A commercial product or offering."
+      "description": "A sellable product, product family, or product line."
     },
     {
       "name": "ProductArchitecture",
       "base_type": "Object",
       "domain": "nvidia_demo",
-      "description": "A product architecture or platform design."
+      "description": "A hardware or platform architecture such as Blackwell."
     },
     {
       "name": "Technology",
       "base_type": "Object",
       "domain": "nvidia_demo",
-      "description": "A technology, capability, or technical component."
+      "description": "A named technology, software stack, or technical capability."
     },
     {
       "name": "Metric",
       "base_type": "Object",
       "domain": "nvidia_demo",
-      "description": "A measurable business or operational indicator."
+      "description": "A business, financial, operational, or telemetry measure."
     },
     {
       "name": "DocumentArtifact",
       "base_type": "Object",
       "domain": "nvidia_demo",
-      "description": "A document, report, or published artifact."
+      "description": "A report, filing, press release document, or other information artifact."
     },
     {
       "name": "Customer",
       "base_type": "Org",
       "domain": "nvidia_demo",
-      "description": "An organization that buys or uses offerings."
+      "description": "An organization buying products or consuming services."
     },
     {
       "name": "Partner",
       "base_type": "Org",
       "domain": "nvidia_demo",
-      "description": "An organization collaborating on business outcomes."
+      "description": "An organization acting as a channel, supplier, or ecosystem partner."
     },
     {
       "name": "BusinessUnit",
       "base_type": "Org",
       "domain": "nvidia_demo",
-      "description": "An internal organizational unit."
+      "description": "An internal business group, segment, or operating unit."
     },
     {
       "name": "Vendor",
       "base_type": "Org",
       "domain": "nvidia_demo",
-      "description": "An organization that supplies products or services."
+      "description": "An external provider of products or services."
     },
     {
       "name": "Region",
       "base_type": "Location",
       "domain": "nvidia_demo",
-      "description": "A geographic sales or operating region."
+      "description": "A sales, support, or reporting region such as EMEA."
     },
     {
       "name": "Country",
       "base_type": "Location",
       "domain": "nvidia_demo",
-      "description": "A sovereign geographic market or location."
+      "description": "A country or nation-state."
     },
     {
       "name": "FiscalPeriod",
@@ -77,19 +77,19 @@
       "name": "PressRelease",
       "base_type": "Event",
       "domain": "nvidia_demo",
-      "description": "A public announcement event."
+      "description": "A public announcement or earnings-related publication event."
     },
     {
       "name": "SupportIncident",
       "base_type": "Event",
       "domain": "nvidia_demo",
-      "description": "A customer support or service incident."
+      "description": "A support case, incident, or ticket."
     },
     {
       "name": "SalesTransaction",
       "base_type": "Event",
       "domain": "nvidia_demo",
-      "description": "A commercial sale or order transaction."
+      "description": "A sale, order, booking, or revenue-generating transaction."
     }
   ]
 }
