@@ -117,6 +117,33 @@ def test_subtype_base_map_rejects_unknown_base_type():
         subtype_base_map(bad)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("domain", ""),
+        ("domain", "   "),
+        ("domain", None),
+        ("description", ""),
+        ("description", "   "),
+        ("description", None),
+    ],
+)
+def test_subtype_base_map_requires_domain_and_description(field, value):
+    row = {
+        "name": "ProductArchitecture",
+        "base_type": "Object",
+        "domain": "nvidia_demo",
+        "description": "A hardware or platform architecture such as Blackwell.",
+    }
+    row[field] = value
+    bad = {
+        "base_types": ["Person", "Org", "Location", "Event", "Object"],
+        "subtypes": [row],
+    }
+    with pytest.raises(ValueError, match=field):
+        subtype_base_map(bad)
+
+
 @pytest.mark.neo4j
 def test_load_ontology_merges_base_types_and_subtypes(neo4j_driver):
     reset_graph(neo4j_driver)
@@ -135,3 +162,44 @@ def test_load_ontology_merges_base_types_and_subtypes(neo4j_driver):
     assert subtype_count == 15
     assert subtype["base_type"] == "Object"
     assert subtype["type_name"] == "Object"
+
+
+@pytest.mark.neo4j
+def test_load_ontology_removes_stale_subtype_edges(neo4j_driver):
+    reset_graph(neo4j_driver)
+    base_catalog = {
+        "base_types": ["Person", "Org", "Location", "Event", "Object"],
+        "subtypes": [
+            {
+                "name": "ProductArchitecture",
+                "base_type": "Object",
+                "domain": "nvidia_demo",
+                "description": "A hardware or platform architecture such as Blackwell.",
+            }
+        ],
+    }
+    changed_catalog = {
+        "base_types": ["Person", "Org", "Location", "Event", "Object"],
+        "subtypes": [
+            {
+                "name": "ProductArchitecture",
+                "base_type": "Event",
+                "domain": "nvidia_demo",
+                "description": "A hardware or platform architecture such as Blackwell.",
+            }
+        ],
+    }
+
+    load_ontology(neo4j_driver, base_catalog)
+    load_ontology(neo4j_driver, changed_catalog)
+
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        targets = session.run(
+            """
+            MATCH (:OntologySubtype {name:'ProductArchitecture'})-[:SUBTYPE_OF]->(t:OntologyType)
+            RETURN t.name AS type_name
+            ORDER BY type_name
+            """
+        ).data()
+
+    assert targets == [{"type_name": "Event"}]

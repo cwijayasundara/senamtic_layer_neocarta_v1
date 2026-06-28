@@ -38,14 +38,19 @@ def subtype_base_map(catalog: dict | None = None) -> dict[str, str]:
             raise ValueError("catalog subtype rows must be objects")
 
         name = subtype.get("name")
-        if not name:
+        if not isinstance(name, str) or not name.strip():
             raise ValueError("catalog subtype missing name")
         if name in mapping:
             raise ValueError(f"duplicate subtype name: {name}")
 
         base_type = subtype.get("base_type")
-        if base_type not in BASE_TYPES:
+        if not isinstance(base_type, str) or not base_type.strip() or base_type not in BASE_TYPES:
             raise ValueError(f"unknown base_type for subtype {name}: {base_type}")
+
+        for field in ("domain", "description"):
+            value = subtype.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"catalog subtype {name} missing {field}")
 
         mapping[name] = base_type
 
@@ -76,6 +81,11 @@ def load_ontology(driver: Driver, catalog: dict | None = None) -> int:
                 s.domain = row.domain,
                 s.description = row.description
             MERGE (t:OntologyType {name: row.base_type})
+            WITH s, t, row
+            OPTIONAL MATCH (s)-[old_rel:SUBTYPE_OF]->(old:OntologyType)
+            WHERE old.name <> row.base_type
+            DELETE old_rel
+            WITH s, t
             MERGE (s)-[:SUBTYPE_OF]->(t)
             """,
             subtypes=subtypes,
