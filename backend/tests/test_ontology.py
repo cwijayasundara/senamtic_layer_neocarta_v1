@@ -12,27 +12,100 @@ from semantic_layer.ingest.ontology import (
 
 def test_load_catalog_contains_fixed_poleo_base_types():
     catalog = load_catalog()
+    assert catalog["base_types"] == ["Person", "Org", "Location", "Event", "Object"]
     assert set(catalog["base_types"]) == BASE_TYPES
-    subtypes = {s["name"]: s["base_type"] for s in catalog["subtypes"]}
-    assert subtypes == {
-        "Product": "Object",
-        "ProductArchitecture": "Object",
-        "Technology": "Object",
-        "Metric": "Object",
-        "DocumentArtifact": "Object",
-        "Customer": "Org",
-        "Partner": "Org",
-        "BusinessUnit": "Org",
-        "Vendor": "Org",
-        "Region": "Location",
-        "Country": "Location",
-        "FiscalPeriod": "Event",
-        "PressRelease": "Event",
-        "SupportIncident": "Event",
-        "SalesTransaction": "Event",
-    }
-    assert all(s["domain"] == "nvidia_demo" for s in catalog["subtypes"])
-    assert all(s["description"] for s in catalog["subtypes"])
+    assert catalog["subtypes"] == [
+        {
+            "name": "Product",
+            "base_type": "Object",
+            "domain": "nvidia_demo",
+            "description": "A sellable product, product family, or product line.",
+        },
+        {
+            "name": "ProductArchitecture",
+            "base_type": "Object",
+            "domain": "nvidia_demo",
+            "description": "A hardware or platform architecture such as Blackwell.",
+        },
+        {
+            "name": "Technology",
+            "base_type": "Object",
+            "domain": "nvidia_demo",
+            "description": "A named technology, software stack, or technical capability.",
+        },
+        {
+            "name": "Metric",
+            "base_type": "Object",
+            "domain": "nvidia_demo",
+            "description": "A business, financial, operational, or telemetry measure.",
+        },
+        {
+            "name": "DocumentArtifact",
+            "base_type": "Object",
+            "domain": "nvidia_demo",
+            "description": "A report, filing, press release document, or other information artifact.",
+        },
+        {
+            "name": "Customer",
+            "base_type": "Org",
+            "domain": "nvidia_demo",
+            "description": "An organization buying products or consuming services.",
+        },
+        {
+            "name": "Partner",
+            "base_type": "Org",
+            "domain": "nvidia_demo",
+            "description": "An organization acting as a channel, supplier, or ecosystem partner.",
+        },
+        {
+            "name": "BusinessUnit",
+            "base_type": "Org",
+            "domain": "nvidia_demo",
+            "description": "An internal business group, segment, or operating unit.",
+        },
+        {
+            "name": "Vendor",
+            "base_type": "Org",
+            "domain": "nvidia_demo",
+            "description": "An external provider of products or services.",
+        },
+        {
+            "name": "Region",
+            "base_type": "Location",
+            "domain": "nvidia_demo",
+            "description": "A sales, support, or reporting region such as EMEA.",
+        },
+        {
+            "name": "Country",
+            "base_type": "Location",
+            "domain": "nvidia_demo",
+            "description": "A country or nation-state.",
+        },
+        {
+            "name": "FiscalPeriod",
+            "base_type": "Event",
+            "domain": "nvidia_demo",
+            "description": "A fiscal year, quarter, or reporting period.",
+        },
+        {
+            "name": "PressRelease",
+            "base_type": "Event",
+            "domain": "nvidia_demo",
+            "description": "A public announcement or earnings-related publication event.",
+        },
+        {
+            "name": "SupportIncident",
+            "base_type": "Event",
+            "domain": "nvidia_demo",
+            "description": "A support case, incident, or ticket.",
+        },
+        {
+            "name": "SalesTransaction",
+            "base_type": "Event",
+            "domain": "nvidia_demo",
+            "description": "A sale, order, booking, or revenue-generating transaction.",
+        },
+    ]
 
 
 def test_subtype_base_map_rejects_unknown_base_type():
