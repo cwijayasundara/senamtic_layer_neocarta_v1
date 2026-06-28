@@ -40,15 +40,22 @@ def _clean_optional_string(value) -> str | None:
     return value or None
 
 
+def _clean_triplet_field(value) -> str | None:
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    return value or None
+
+
 def clean_facts(raw) -> list[dict]:
     """Return valid, normalized fact triplets from LLM-like rows."""
     out, seen = [], set()
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
             continue
-        subject = (item.get("subject") or "").strip()
-        predicate = (item.get("predicate") or "").strip()
-        obj = (item.get("object") or "").strip()
+        subject = _clean_triplet_field(item.get("subject"))
+        predicate = _clean_triplet_field(item.get("predicate"))
+        obj = _clean_triplet_field(item.get("object"))
         if not subject or not predicate or not obj:
             continue
 
@@ -88,26 +95,26 @@ def fact_id(chunk_id: str, subject: str, predicate: str, obj: str) -> str:
 
 def load_facts(driver: Driver, chunk_id: str, facts: list[dict]) -> int:
     """MERGE Fact nodes and Chunk-[:HAS_FACT]->Fact edges for one chunk."""
-    rows = [
-        {
-            "id": fact_id(chunk_id, fact["subject"], fact["predicate"], fact["object"]),
-            "subject": fact["subject"],
-            "predicate": fact["predicate"],
-            "object": fact["object"],
-            "text": fact["text"],
-            "confidence": fact["confidence"],
+    rows = []
+    for fact in facts if isinstance(facts, list) else []:
+        if not isinstance(fact, dict):
+            continue
+        subject = _clean_triplet_field(fact.get("subject"))
+        predicate = _clean_triplet_field(fact.get("predicate"))
+        obj = _clean_triplet_field(fact.get("object"))
+        if not subject or not predicate or not obj:
+            continue
+        rows.append({
+            "id": fact_id(chunk_id, subject, predicate, obj),
+            "subject": subject,
+            "predicate": predicate,
+            "object": obj,
+            "text": fact.get("text") or f"{subject} / {predicate} / {obj}",
+            "confidence": _confidence(fact.get("confidence")),
             "source_chunk_id": chunk_id,
             "valid_from": fact.get("valid_from"),
             "valid_until": fact.get("valid_until"),
-        }
-        for fact in facts
-        if (
-            isinstance(fact, dict)
-            and (fact.get("subject") or "").strip()
-            and (fact.get("predicate") or "").strip()
-            and (fact.get("object") or "").strip()
-        )
-    ]
+        })
     if not rows:
         return 0
     with driver.session(database=settings.neo4j_database) as session:

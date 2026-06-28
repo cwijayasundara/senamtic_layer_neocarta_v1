@@ -21,6 +21,28 @@ class _FakeModel:
         return _Resp(self._content)
 
 
+class _FakeSession:
+    def __init__(self):
+        self.params = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        return None
+
+    def run(self, _query, **params):
+        self.params = params
+
+
+class _FakeDriver:
+    def __init__(self):
+        self.session_obj = _FakeSession()
+
+    def session(self, database=None):
+        return self.session_obj
+
+
 def test_clean_facts_accepts_valid_triplet():
     out = clean_facts([
         {
@@ -53,6 +75,16 @@ def test_clean_facts_rejects_malformed_rows():
         {"subject": "Blackwell", "predicate": "drove", "object": ""},
         "Blackwell drove growth",
         None,
+    ])
+
+    assert out == []
+
+
+def test_clean_facts_rejects_non_string_triplet_fields():
+    out = clean_facts([
+        {"subject": 123, "predicate": "p", "object": "o"},
+        {"subject": "s", "predicate": ["p"], "object": "o"},
+        {"subject": "s", "predicate": "p", "object": {"name": "o"}},
     ])
 
     assert out == []
@@ -95,6 +127,27 @@ def test_fact_id_is_stable():
     assert first == second
     assert first != other_chunk
     assert first.startswith("fact:")
+
+
+def test_load_facts_skips_malformed_direct_rows():
+    driver = _FakeDriver()
+    rows = [
+        {
+            "subject": "Blackwell",
+            "predicate": "drove",
+            "object": "growth",
+            "text": "Blackwell / drove / growth",
+            "confidence": 1.0,
+            "valid_from": None,
+            "valid_until": None,
+        },
+        {"subject": 123, "predicate": "p", "object": "o", "text": "bad", "confidence": 1.0},
+        {"subject": "s", "predicate": ["p"], "object": "o", "text": "bad", "confidence": 1.0},
+        {"subject": "s", "predicate": "p", "object": {"name": "o"}, "text": "bad", "confidence": 1.0},
+    ]
+
+    assert load_facts(driver, "c1", rows) == 1
+    assert driver.session_obj.params["rows"][0]["text"] == "Blackwell / drove / growth"
 
 
 @pytest.mark.neo4j
