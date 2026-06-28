@@ -12,3 +12,4 @@ data/seed/
 .claude/
 .playwright-mcp/
 logs/
+.worktrees/
