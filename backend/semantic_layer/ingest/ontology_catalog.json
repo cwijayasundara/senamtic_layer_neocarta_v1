@@ -1,0 +1,95 @@
+{
+  "base_types": ["Person", "Org", "Location", "Event", "Object"],
+  "subtypes": [
+    {
+      "name": "Product",
+      "base_type": "Object",
+      "domain": "nvidia_demo",
+      "description": "A commercial product or offering."
+    },
+    {
+      "name": "ProductArchitecture",
+      "base_type": "Object",
+      "domain": "nvidia_demo",
+      "description": "A product architecture or platform design."
+    },
+    {
+      "name": "Technology",
+      "base_type": "Object",
+      "domain": "nvidia_demo",
+      "description": "A technology, capability, or technical component."
+    },
+    {
+      "name": "Metric",
+      "base_type": "Object",
+      "domain": "nvidia_demo",
+      "description": "A measurable business or operational indicator."
+    },
+    {
+      "name": "DocumentArtifact",
+      "base_type": "Object",
+      "domain": "nvidia_demo",
+      "description": "A document, report, or published artifact."
+    },
+    {
+      "name": "Customer",
+      "base_type": "Org",
+      "domain": "nvidia_demo",
+      "description": "An organization that buys or uses offerings."
+    },
+    {
+      "name": "Partner",
+      "base_type": "Org",
+      "domain": "nvidia_demo",
+      "description": "An organization collaborating on business outcomes."
+    },
+    {
+      "name": "BusinessUnit",
+      "base_type": "Org",
+      "domain": "nvidia_demo",
+      "description": "An internal organizational unit."
+    },
+    {
+      "name": "Vendor",
+      "base_type": "Org",
+      "domain": "nvidia_demo",
+      "description": "An organization that supplies products or services."
+    },
+    {
+      "name": "Region",
+      "base_type": "Location",
+      "domain": "nvidia_demo",
+      "description": "A geographic sales or operating region."
+    },
+    {
+      "name": "Country",
+      "base_type": "Location",
+      "domain": "nvidia_demo",
+      "description": "A sovereign geographic market or location."
+    },
+    {
+      "name": "FiscalPeriod",
+      "base_type": "Event",
+      "domain": "nvidia_demo",
+      "description": "A fiscal year, quarter, or reporting period."
+    },
+    {
+      "name": "PressRelease",
+      "base_type": "Event",
+      "domain": "nvidia_demo",
+      "description": "A public announcement event."
+    },
+    {
+      "name": "SupportIncident",
+      "base_type": "Event",
+      "domain": "nvidia_demo",
+      "description": "A customer support or service incident."
+    },
+    {
+      "name": "SalesTransaction",
+      "base_type": "Event",
+      "domain": "nvidia_demo",
+      "description": "A commercial sale or order transaction."
+    }
+  ]
+}
