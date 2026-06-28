@@ -26,3 +26,42 @@ def test_extract_entities_for_chunks_empty_input(monkeypatch):
 
     monkeypatch.setattr(pipe, "extract_entities_batch", fail_if_called)
     assert pipe.extract_entities_for_chunks([]) == {}
+
+
+def test_extract_facts_for_chunks_covers_all_rows(monkeypatch):
+    rows = [{"id": f"c{i}", "text": f"text {i}"} for i in range(12)]
+    seen_batches = []
+
+    def fake_batch(texts):
+        seen_batches.append(len(texts))
+        return [
+            [
+                {
+                    "subject": t,
+                    "predicate": "mentions",
+                    "object": "NVIDIA",
+                    "text": f"{t} / mentions / NVIDIA",
+                    "confidence": 1.0,
+                    "valid_from": None,
+                    "valid_until": None,
+                }
+            ]
+            for t in texts
+        ]
+
+    monkeypatch.setattr(pipe.settings, "entity_batch_size", 5)
+    monkeypatch.setattr(pipe.settings, "ingest_max_workers", 3)
+    monkeypatch.setattr(pipe, "extract_facts_batch", fake_batch)
+
+    result = pipe.extract_facts_for_chunks(rows)
+    assert set(result) == {f"c{i}" for i in range(12)}
+    assert result["c7"][0]["subject"] == "text 7"
+    assert sorted(seen_batches) == [2, 5, 5]
+
+
+def test_extract_facts_for_chunks_empty_input(monkeypatch):
+    def fail_if_called(texts):  # pragma: no cover - must never run on empty input
+        raise AssertionError("extract_facts_batch called for empty input")
+
+    monkeypatch.setattr(pipe, "extract_facts_batch", fail_if_called)
+    assert pipe.extract_facts_for_chunks([]) == {}

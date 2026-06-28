@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from semantic_layer.config import settings
 from semantic_layer.ingest.entities import extract_entities_batch
+from semantic_layer.ingest.facts import extract_facts_batch
 from semantic_layer.graph.client import get_driver, reset_graph
 from semantic_layer.apis.app import app
 from semantic_layer.ingest.sql_extractor import extract_postgres, extract_sqlite
@@ -137,10 +138,29 @@ def extract_entities_for_chunks(chunk_rows: list[dict]) -> dict[str, list[dict]]
     return out
 
 
+def extract_facts_for_chunks(chunk_rows: list[dict]) -> dict[str, list[dict]]:
+    """Map chunk id -> facts, running entity_batch_size-sized batches concurrently."""
+    size = max(1, settings.entity_batch_size)
+    batches = [chunk_rows[i:i + size] for i in range(0, len(chunk_rows), size)]
+    if not batches:
+        return {}
+
+    def run(batch: list[dict]) -> dict[str, list[dict]]:
+        groups = extract_facts_batch([r["text"] for r in batch])
+        return {r["id"]: facts for r, facts in zip(batch, groups)}
+
+    out: dict[str, list[dict]] = {}
+    with ThreadPoolExecutor(max_workers=settings.ingest_max_workers) as pool:
+        for partial in pool.map(run, batches):
+            out.update(partial)
+    return out
+
+
 def _run_llm_stages(driver, bundles) -> None:
     from semantic_layer.ingest.glossary import generate_business_terms, load_business_terms
     from semantic_layer.ingest.doc_graph import load_entities, bridge_entities_to_values
-    from semantic_layer.ingest.embeddings import embed_chunks, embed_tables
+    from semantic_layer.ingest.facts import load_facts, link_facts
+    from semantic_layer.ingest.embeddings import embed_chunks, embed_tables, embed_facts
 
     columns = [
         {"column_id": c.id, "name": c.name, "table": c.id.split(".")[-2]}
@@ -158,9 +178,14 @@ def _run_llm_stages(driver, bundles) -> None:
         load_entities(driver, chunk_id, ents)
     # Bridge document entities to the canonical value layer (Entity -> Value).
     bridge_entities_to_values(driver)
+    facts_by_chunk = extract_facts_for_chunks(chunk_rows)
+    for chunk_id, facts in facts_by_chunk.items():
+        load_facts(driver, chunk_id, facts)
+    link_facts(driver)
 
     embed_chunks(driver)
     embed_tables(driver)
+    embed_facts(driver)
 
 
 if __name__ == "__main__":
