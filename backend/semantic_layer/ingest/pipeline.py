@@ -25,6 +25,7 @@ from semantic_layer.ingest.query_log_indexer import index_query_log
 from semantic_layer.ingest.doc_parser import parse_document, file_content_hash
 from semantic_layer.ingest.doc_loader import load_document, document_unchanged
 from semantic_layer.ingest.doc_graph import extract_period, link_document_period
+from semantic_layer.ingest.ontology import load_ontology
 
 
 def _api_spec_getter():
@@ -106,6 +107,7 @@ def run_ingest(*, with_llm: bool = True, reset: bool = True) -> dict:
             ingested += 1
         counts["documents"] = ingested
         counts["documents_skipped"] = skipped
+        counts["ontology_subtypes"] = load_ontology(driver)
 
         if with_llm:
             _run_llm_stages(driver, bundles)
