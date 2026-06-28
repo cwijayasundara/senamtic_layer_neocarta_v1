@@ -78,6 +78,65 @@ def embed_chunks(driver: Driver, batch: int = 64) -> None:
     _ensure_chunk_vector_index(driver)
 
 
+def embed_facts(driver: Driver, batch: int = 64) -> None:
+    """Embed Fact.text into Fact.embedding and ensure a vector index exists."""
+    if settings.fake_embeddings:
+        with driver.session(database=settings.neo4j_database) as session:
+            rows = session.run(
+                "MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f.id AS id, f.text AS text"
+            ).data()
+            for i in range(0, len(rows), batch):
+                window = rows[i:i + batch]
+                session.run(
+                    """
+                    UNWIND $rows AS row
+                    MATCH (f:Fact {id: row.id})
+                    CALL db.create.setNodeVectorProperty(f, 'embedding', row.vec)
+                    """,
+                    rows=[{"id": w["id"], "vec": fake_vector(w["text"] or "", settings.embedding_dimensions)}
+                          for w in window],
+                )
+        _ensure_fact_vector_index(driver)
+        return
+    client = get_openai_client()
+    with driver.session(database=settings.neo4j_database) as session:
+        rows = session.run(
+            "MATCH (f:Fact) WHERE f.embedding IS NULL RETURN f.id AS id, f.text AS text"
+        ).data()
+        for i in range(0, len(rows), batch):
+            window = rows[i:i + batch]
+            vectors = client.embeddings.create(
+                model=settings.embedding_model,
+                input=[r["text"] for r in window],
+                dimensions=settings.embedding_dimensions,
+            ).data
+            session.run(
+                """
+                UNWIND $rows AS row
+                MATCH (f:Fact {id: row.id})
+                CALL db.create.setNodeVectorProperty(f, 'embedding', row.vec)
+                """,
+                rows=[{"id": w["id"], "vec": v.embedding} for w, v in zip(window, vectors)],
+            )
+    _ensure_fact_vector_index(driver)
+
+
+def _ensure_fact_vector_index(driver: Driver) -> None:
+    """Create a vector index named `fact_embeddings` on Fact.embedding."""
+    with driver.session(database=settings.neo4j_database) as session:
+        session.run("DROP INDEX fact_vector_index IF EXISTS")
+        session.run(
+            f"""
+            CREATE VECTOR INDEX fact_embeddings IF NOT EXISTS
+            FOR (f:Fact) ON (f.embedding)
+            OPTIONS {{indexConfig: {{
+              `vector.dimensions`: {settings.embedding_dimensions},
+              `vector.similarity_function`: 'cosine'
+            }}}}
+            """
+        )
+
+
 def _ensure_chunk_vector_index(driver: Driver) -> None:
     """Create a vector index named `chunk_embeddings` on Chunk.embedding.
 
