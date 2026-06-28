@@ -20,13 +20,49 @@ class _FakeModel:
 def test_extract_entities_batch_groups_per_chunk(monkeypatch):
     payload = json.dumps([
         [{"name": "NVIDIA", "label": "Org"}, {"name": "nvidia", "label": "Org"}],  # dup dropped
-        [{"name": "Jensen Huang", "label": "Person"}, {"name": "Bob", "label": "Alien"}],  # bad label dropped
+        [
+            {"name": "Jensen Huang", "label": "Person"},
+            {"name": "Bob", "label": "Alien"},
+            {
+                "name": "Blackwell",
+                "base_type": "Object",
+                "subtype": "ProductArchitecture",
+                "confidence": 0.91,
+                "evidence": "Blackwell architecture",
+            },
+        ],  # bad label dropped
     ])
     monkeypatch.setattr(ent_mod, "get_chat_model", lambda model=None: _FakeModel(payload))
     out = extract_entities_batch(["chunk about NVIDIA", "chunk about the CEO"])
     assert len(out) == 2
-    assert out[0] == [{"name": "NVIDIA", "label": "Org"}]
-    assert out[1] == [{"name": "Jensen Huang", "label": "Person"}]
+    assert out[0] == [
+        {
+            "name": "NVIDIA",
+            "label": "Org",
+            "base_type": "Org",
+            "subtype": None,
+            "confidence": 1.0,
+            "evidence": "",
+        }
+    ]
+    assert out[1] == [
+        {
+            "name": "Jensen Huang",
+            "label": "Person",
+            "base_type": "Person",
+            "subtype": None,
+            "confidence": 1.0,
+            "evidence": "",
+        },
+        {
+            "name": "Blackwell",
+            "label": "Object",
+            "base_type": "Object",
+            "subtype": "ProductArchitecture",
+            "confidence": 0.91,
+            "evidence": "Blackwell architecture",
+        },
+    ]
 
 
 def test_extract_entities_batch_handles_bad_json(monkeypatch):
