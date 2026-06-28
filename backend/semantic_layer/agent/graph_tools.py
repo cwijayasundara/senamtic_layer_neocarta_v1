@@ -226,7 +226,8 @@ def neighbors(name: str) -> str:
     this value, and which documents/chunks MENTION it. Use it to connect the two
     worlds — e.g. confirm that an architecture the press releases discuss is the same
     one you have sales rows for, then quantify it with the sql subagent. Returns JSON
-    {name, catalog:[{table_id, column, value}], documents:[{doc_id, chunks}],
+    {name, catalog:[{table_id, column, value}],
+    documents:[{doc_id, chunks, entityType, subtype, subtypeDescription}],
     facts:[{id, text, subject, predicate, object, confidence, chunk_id}]}."""
     key = " ".join((name or "").lower().split())
     catalog = driver().execute_query(
@@ -243,7 +244,10 @@ def neighbors(name: str) -> str:
         """
         MATCH (ch:Chunk)-[:MENTIONS]->(e:Entity)
         WHERE e.norm = $key OR (e)-[:REFERS_TO]->(:Value {norm: $key})
-        RETURN ch.doc_id AS doc_id, count(DISTINCT ch) AS chunks
+        OPTIONAL MATCH (e)-[:INSTANCE_OF]->(s:OntologySubtype)
+        RETURN ch.doc_id AS doc_id, count(DISTINCT ch) AS chunks,
+               min(e.label) AS entityType, min(s.name) AS subtype,
+               min(s.description) AS subtypeDescription
         ORDER BY chunks DESC
         """,
         key=key, database_=settings.neo4j_database,
@@ -283,11 +287,24 @@ def search_facts(query: str, limit: int = 10) -> str:
             OPTIONAL MATCH (stored:Chunk {id: node.source_chunk_id})
             WITH node AS f, score, coalesce(stored, linked) AS ch
             OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(ch)
+            OPTIONAL MATCH (subjectEntity:Entity {norm: f.subject_norm})
+            OPTIONAL MATCH (subjectEntity)-[:INSTANCE_OF]->(subjectSubtype:OntologySubtype)
+            OPTIONAL MATCH (objectEntity:Entity {norm: f.object_norm})
+            OPTIONAL MATCH (objectEntity)-[:INSTANCE_OF]->(objectSubtype:OntologySubtype)
+            WITH f, ch, d, score,
+                 min(subjectEntity.label) AS subject_entity_type,
+                 min(subjectSubtype.name) AS subject_subtype,
+                 min(objectEntity.label) AS object_entity_type,
+                 min(objectSubtype.name) AS object_subtype
             RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate,
                    f.object AS object, f.text AS text, f.confidence AS confidence,
                    coalesce(f.source_chunk_id, ch.id) AS chunk_id,
                    coalesce(ch.doc_id, d.id) AS doc_id, ch.ordinal AS ordinal,
-                   score AS score
+                   score AS score,
+                   subject_entity_type AS subject_entity_type,
+                   subject_subtype AS subject_subtype,
+                   object_entity_type AS object_entity_type,
+                   object_subtype AS object_subtype
             ORDER BY score DESC LIMIT $limit
             """,
             limit=limit, vector=vector, database_=settings.neo4j_database,
@@ -301,11 +318,24 @@ def search_facts(query: str, limit: int = 10) -> str:
             OPTIONAL MATCH (stored:Chunk {id: f.source_chunk_id})
             WITH f, coalesce(stored, linked) AS ch
             OPTIONAL MATCH (d:Document)-[:HAS_CHUNK]->(ch)
+            OPTIONAL MATCH (subjectEntity:Entity {norm: f.subject_norm})
+            OPTIONAL MATCH (subjectEntity)-[:INSTANCE_OF]->(subjectSubtype:OntologySubtype)
+            OPTIONAL MATCH (objectEntity:Entity {norm: f.object_norm})
+            OPTIONAL MATCH (objectEntity)-[:INSTANCE_OF]->(objectSubtype:OntologySubtype)
+            WITH f, ch, d,
+                 min(subjectEntity.label) AS subject_entity_type,
+                 min(subjectSubtype.name) AS subject_subtype,
+                 min(objectEntity.label) AS object_entity_type,
+                 min(objectSubtype.name) AS object_subtype
             RETURN f.id AS id, f.subject AS subject, f.predicate AS predicate,
                    f.object AS object, f.text AS text, f.confidence AS confidence,
                    coalesce(f.source_chunk_id, ch.id) AS chunk_id,
                    coalesce(ch.doc_id, d.id) AS doc_id, ch.ordinal AS ordinal,
-                   1.0 AS score
+                   1.0 AS score,
+                   subject_entity_type AS subject_entity_type,
+                   subject_subtype AS subject_subtype,
+                   object_entity_type AS object_entity_type,
+                   object_subtype AS object_subtype
             ORDER BY confidence DESC LIMIT $limit
             """,
             query=query, limit=limit, database_=settings.neo4j_database,
@@ -392,6 +422,24 @@ def search_catalog(query: str, limit: int = 20) -> str:
         """,
         terms=terms, limit=limit, database_=settings.neo4j_database,
     ).records
+    ontology_hits = driver().execute_query(
+        """
+        UNWIND $terms AS term
+        MATCH (s:OntologySubtype)<-[:INSTANCE_OF]-(e:Entity)-[:REFERS_TO]->(v:Value)
+              <-[:HAS_VALUE]-(c:Column)<-[:HAS_COLUMN]-(t:Table)
+        WHERE toLower(s.name) CONTAINS term
+           OR toLower(coalesce(s.domain, '')) CONTAINS term
+           OR toLower(coalesce(s.description, '')) CONTAINS term
+           OR toLower(coalesce(e.name, '')) CONTAINS term
+        WITH s, e, v, c, t, count(DISTINCT term) AS score
+        RETURN 'ontology' AS kind, s.name AS id, coalesce(v.name, e.name) AS name,
+               t.id AS table_id, c.name AS column, s.name AS subtype,
+               s.base_type AS base_type, score
+        ORDER BY score DESC LIMIT $limit
+        """,
+        terms=terms, limit=limit, database_=settings.neo4j_database,
+    ).records
     hits = [dict(r) for r in (list(column_hits) + list(table_hits)
-                              + list(value_hits) + list(term_hits))]
+                              + list(value_hits) + list(ontology_hits)
+                              + list(term_hits))]
     return json.dumps(hits[:limit])

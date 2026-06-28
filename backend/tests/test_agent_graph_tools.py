@@ -83,6 +83,42 @@ def test_search_catalog_routes_value_to_owning_table(ingested_graph):
 
 
 @pytest.mark.neo4j
+def test_search_catalog_uses_ontology_subtypes_to_route_values(neo4j_driver):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (t:Table {id:'table:sales_pg.sales.architecture', name:'architecture'})
+            CREATE (c:Column {id:'column:sales_pg.sales.architecture.name', name:'name'})
+            CREATE (v:Value {name:'Blackwell', norm:'blackwell'})
+            CREATE (e:Entity {name:'Blackwell', norm:'blackwell', label:'Object'})
+            CREATE (s:OntologySubtype {
+              name:'ProductArchitecture',
+              base_type:'Object',
+              domain:'product',
+              description:'GPU product architecture'
+            })
+            CREATE (t)-[:HAS_COLUMN]->(c)
+            CREATE (c)-[:HAS_VALUE]->(v)
+            CREATE (e)-[:REFERS_TO]->(v)
+            CREATE (e)-[:INSTANCE_OF]->(s)
+            """
+        )
+
+    data = json.loads(search_catalog.invoke({"query": "product architecture"}))
+    hit = next(row for row in data if row["kind"] == "ontology")
+
+    assert hit["table_id"] == "table:sales_pg.sales.architecture"
+    assert hit["column"] == "name"
+    assert hit["name"] == "Blackwell"
+    assert hit["subtype"] == "ProductArchitecture"
+    assert hit["base_type"] == "Object"
+
+
+@pytest.mark.neo4j
 def test_neighbors_returns_catalog_location_of_value(ingested_graph):
     data = json.loads(neighbors.invoke({"name": "Blackwell"}))
     cat = {(c["table_id"], c["column"]) for c in data["catalog"]}
@@ -123,6 +159,35 @@ def test_neighbors_bridges_documents_to_catalog(neo4j_driver):
         (c["table_id"], c["column"]) for c in data["catalog"]
     }
     assert any(d["doc_id"] == "doc:pr" for d in data["documents"])
+
+
+@pytest.mark.neo4j
+def test_neighbors_includes_entity_ontology_context(neo4j_driver):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+
+    reset_graph(neo4j_driver)
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (ch:Chunk {id:'chunk:1', doc_id:'doc:nvidia', ordinal:0})
+            CREATE (e:Entity {name:'Blackwell', norm:'blackwell', label:'Object'})
+            CREATE (s:OntologySubtype {
+              name:'ProductArchitecture',
+              base_type:'Object',
+              domain:'product',
+              description:'GPU product architecture'
+            })
+            CREATE (ch)-[:MENTIONS]->(e)
+            CREATE (e)-[:INSTANCE_OF]->(s)
+            """
+        )
+
+    data = json.loads(neighbors.invoke({"name": "Blackwell"}))
+
+    assert data["documents"][0]["entityType"] == "Object"
+    assert data["documents"][0]["subtype"] == "ProductArchitecture"
+    assert data["documents"][0]["subtypeDescription"] == "GPU product architecture"
 
 
 @pytest.mark.neo4j
@@ -190,6 +255,62 @@ def test_search_facts_returns_grounded_triplets(neo4j_driver, monkeypatch):
     assert data[0]["subject"] == "Blackwell"
     assert data[0]["predicate"] == "drove"
     assert data[0]["chunk_id"] == "c1"
+
+
+@pytest.mark.neo4j
+def test_search_facts_includes_subject_object_ontology_context(neo4j_driver, monkeypatch):
+    from semantic_layer.config import settings
+    from semantic_layer.graph.client import reset_graph
+
+    reset_graph(neo4j_driver)
+    monkeypatch.setattr(
+        "semantic_layer.agent.graph_tools.embed_query",
+        lambda query: (_ for _ in ()).throw(RuntimeError("skip vector search")),
+    )
+    with neo4j_driver.session(database=settings.neo4j_database) as session:
+        session.run(
+            """
+            CREATE (ch:Chunk {id:'chunk:1', doc_id:'doc:nvidia', ordinal:0})
+            CREATE (f:Fact {
+              id:'fact:1',
+              subject:'Blackwell',
+              subject_norm:'blackwell',
+              predicate:'drove',
+              object:'growth',
+              object_norm:'growth',
+              text:'Blackwell drove growth',
+              confidence:0.91,
+              source_chunk_id:'chunk:1'
+            })
+            CREATE (subject:Entity {name:'Blackwell', norm:'blackwell', label:'Object'})
+            CREATE (subjectSubtype:OntologySubtype {
+              name:'ProductArchitecture',
+              base_type:'Object',
+              domain:'product',
+              description:'GPU product architecture'
+            })
+            CREATE (objectEntity:Entity {name:'growth', norm:'growth', label:'Event'})
+            CREATE (objectSubtype:OntologySubtype {
+              name:'FinancialResult',
+              base_type:'Event',
+              domain:'finance',
+              description:'reported financial outcome'
+            })
+            CREATE (ch)-[:HAS_FACT]->(f)
+            CREATE (ch)-[:MENTIONS]->(subject)
+            CREATE (ch)-[:MENTIONS]->(objectEntity)
+            CREATE (subject)-[:INSTANCE_OF]->(subjectSubtype)
+            CREATE (objectEntity)-[:INSTANCE_OF]->(objectSubtype)
+            """
+        )
+
+    data = json.loads(search_facts.invoke({"query": "Blackwell"}))
+    row = data[0]
+
+    assert row["subject_entity_type"] == "Object"
+    assert row["subject_subtype"] == "ProductArchitecture"
+    assert row["object_entity_type"] == "Event"
+    assert row["object_subtype"] == "FinancialResult"
 
 
 @pytest.mark.neo4j
