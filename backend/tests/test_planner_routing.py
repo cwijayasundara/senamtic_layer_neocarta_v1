@@ -38,3 +38,27 @@ def test_build_plan_routing_enabled_unions_routed_tables(monkeypatch):
     targets = [jt["table_id"] for jt in plan["sql_legs"][0]["join_targets"]]
     assert "table:sales_pg.sales.region" in targets    # routed table folded into the join
     assert "table:sales_pg.sales.region" in plan["highlight"]
+
+
+def test_build_plan_highlights_fact_table_without_dimensions(monkeypatch):
+    _stub_graph(monkeypatch)
+    monkeypatch.setattr(planner_mod.settings, "schema_routing_enabled", False, raising=False)
+
+    plan = build_plan(Intent(needs_sql=True, fact="revenue"))
+
+    assert "table:sales_pg.sales.order_line" in plan["highlight"]
+
+
+def test_build_plan_highlights_api_correlation_endpoint_tables(monkeypatch):
+    _stub_graph(monkeypatch)
+    monkeypatch.setattr(planner_mod.settings, "schema_routing_enabled", False, raising=False)
+    monkeypatch.setattr(planner_mod, "_api_correlations", lambda: [
+        {
+            "sql_column": "col:sales_pg.sales.customer.customer_id",
+            "api_column": "col:itsm.api.GET /tickets.account_id",
+        }
+    ])
+
+    plan = build_plan(Intent(needs_sql=False, needs_api=True, api_intents=["open tickets"]))
+
+    assert "table:itsm.api.GET /tickets" in plan["highlight"]

@@ -47,6 +47,51 @@ _SYNTH_PROMPT = (
 )
 
 
+def _table_id_from_column_id(column_id: str | None) -> str | None:
+    if not isinstance(column_id, str) or not column_id.startswith("col:"):
+        return None
+    prefix, _, _column = column_id.rpartition(".")
+    if not prefix:
+        return None
+    return "table:" + prefix.split(":", 1)[1]
+
+
+def _api_table_id(call: dict) -> str | None:
+    source = call.get("source")
+    path = call.get("path")
+    if not isinstance(source, str) or not isinstance(path, str):
+        return None
+    return f"table:{source}.api.GET {path}"
+
+
+def _answer_highlight(plan: dict, api_calls: list[dict], doc_citations: list[dict]) -> list[str]:
+    out = set(plan.get("highlight", []))
+    for leg in plan.get("sql_legs", []):
+        fact_table = leg.get("fact_table")
+        if isinstance(fact_table, str):
+            out.add(fact_table)
+        for target in leg.get("join_targets", []):
+            table_id = target.get("table_id")
+            if isinstance(table_id, str):
+                out.add(table_id)
+            out.update(t for t in target.get("tables", []) if isinstance(t, str))
+    for corr in plan.get("api_correlations", []):
+        for key in ("sql_column", "api_column"):
+            table_id = _table_id_from_column_id(corr.get(key))
+            if table_id:
+                out.add(table_id)
+    for call in api_calls:
+        table_id = _api_table_id(call)
+        if table_id:
+            out.add(table_id)
+    for citation in doc_citations:
+        for key in ("doc_id", "chunk_id"):
+            node_id = citation.get(key)
+            if isinstance(node_id, str):
+                out.add(node_id)
+    return sorted(out)
+
+
 def _synthesize(question: str, sql_runs, api_calls, doc, correlations) -> str:
     payload = {"question": question, "sql": sql_runs, "api": api_calls,
                "doc_answer": (doc or {}).get("answer"), "api_correlations": correlations}
@@ -133,7 +178,8 @@ def answer_stream(question: str) -> Iterator[dict]:
                    "highlight": [], "sql_runs": [], "api_calls": [], "doc_citations": [], "caveats": []}
             return
 
-        answer_event = {"type": "answer", "content": summary, "highlight": plan.get("highlight", []),
+        answer_event = {"type": "answer", "content": summary,
+                        "highlight": _answer_highlight(plan, api_calls, doc_citations),
                         "sql_runs": sql_runs, "api_calls": api_calls,
                         "doc_citations": doc_citations, "caveats": caveats, "trace": trace}
         # Store the full event list (tool_results + answer) so replays include the reasoning trace.

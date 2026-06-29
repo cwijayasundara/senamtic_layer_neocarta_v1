@@ -38,3 +38,41 @@ def test_answer_stream_runs_stages_and_emits_answer(monkeypatch):
     kinds = [e["type"] for e in events]
     assert kinds.count("answer") == 1
     assert "tool_result" in kinds
+
+
+def test_answer_stream_augments_highlight_from_leg_results(monkeypatch):
+    monkeypatch.setattr(ctrl.settings, "query_cache_enabled", False, raising=False)
+    monkeypatch.setattr(ctrl, "extract_intent",
+                        lambda q: Intent(needs_sql=False, needs_api=True, needs_doc=True,
+                                         doc_query="Blackwell architecture",
+                                         api_intents=["open tickets"]))
+    monkeypatch.setattr(ctrl, "build_plan", lambda intent, **kwargs: {
+        "resolved_values": [], "highlight": [],
+        "sql_legs": [],
+        "doc_leg": {"doc_query": "Blackwell architecture", "candidate_doc_ids": [], "periods": []},
+        "api_correlations": [
+            {
+                "sql_column": "col:sales_pg.sales.customer.customer_id",
+                "api_column": "col:itsm.api.GET /tickets.account_id",
+            }
+        ],
+        "routed_tables": [],
+    })
+    monkeypatch.setattr(ctrl, "run_api_leg", lambda intents: {"calls": [
+        {"source": "dgx", "path": "/usage", "params": {}, "status": 200,
+         "row_count": 1, "data": [{"gpu_hours": 100}]}
+    ]})
+    monkeypatch.setattr(ctrl, "run_doc_leg", lambda q: {
+        "answer": "doc says Blackwell is a product architecture",
+        "citations": [
+            {"doc_id": "doc:x", "chunk_id": "doc:x:chunk:2", "quote": "Blackwell", "score": 0.9}],
+        "doc_texts": ["Blackwell is a product architecture."], "error": None})
+    monkeypatch.setattr(ctrl, "_synthesize", lambda *a, **k: "answer")
+    monkeypatch.setattr(ctrl, "check_numeric_grounding", lambda *a, **k: [])
+
+    answer = list(ctrl.answer_stream("q"))[-1]
+
+    assert "table:itsm.api.GET /tickets" in answer["highlight"]
+    assert "table:dgx.api.GET /usage" in answer["highlight"]
+    assert "doc:x" in answer["highlight"]
+    assert "doc:x:chunk:2" in answer["highlight"]

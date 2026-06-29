@@ -118,6 +118,15 @@ def _api_correlations() -> list[dict]:
     return [{"sql_column": r["sql_column"], "api_column": r["api_column"]} for r in recs]
 
 
+def _table_id_from_column_id(column_id: str | None) -> str | None:
+    if not isinstance(column_id, str) or not column_id.startswith("col:"):
+        return None
+    prefix, _, _column = column_id.rpartition(".")
+    if not prefix:
+        return None
+    return "table:" + prefix.split(":", 1)[1]
+
+
 def _table_columns(table_id: str) -> list[str]:
     """Actual column names of a table, so the SQL leg uses real names (not guesses)."""
     recs = driver().execute_query(
@@ -194,7 +203,7 @@ def build_plan(intent: "Intent", question: str | None = None) -> dict:
         routed_set = set(routed_sales)
         bounded = [t for t in dict.fromkeys(sales_target_ids) if t in routed_set]
         sales_target_ids = bounded[: settings.schema_routing_max_targets]
-    if sales_target_ids:
+    if sales_target_ids or intent.needs_sql:
         sql_legs.append({
             "source": "sales_pg",
             "fact_table": fact_table,
@@ -218,8 +227,18 @@ def build_plan(intent: "Intent", question: str | None = None) -> dict:
 
     highlight = sorted({
         *(r["table_id"] for r in resolved),
+        *(leg["fact_table"] for leg in sql_legs),
+        *(jt["table_id"] for leg in sql_legs for jt in leg["join_targets"]),
         *(t for leg in sql_legs for jt in leg["join_targets"] for t in jt["tables"]),
         *(doc_leg["candidate_doc_ids"] if doc_leg else []),
+        *(
+            tid for corr in api_correlations
+            for tid in (
+                _table_id_from_column_id(corr.get("sql_column")),
+                _table_id_from_column_id(corr.get("api_column")),
+            )
+            if tid
+        ),
         *routed_tables,
     })
 
