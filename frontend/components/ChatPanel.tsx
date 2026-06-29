@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { AnswerEvent } from "@/lib/types";
 import { AnswerPanel } from "./AnswerPanel";
 
-type Level = "Simple" | "Moderate" | "Complex" | "Max";
+type Level = "Simple" | "Moderate" | "Complex" | "Max" | "Extreme";
 
 // Complexity ramps by how many source TYPES (and databases) a question must fuse.
 const LEVEL_STYLE: Record<Level, string> = {
@@ -11,15 +11,18 @@ const LEVEL_STYLE: Record<Level, string> = {
   Moderate: "border-sky-700 bg-sky-950/50 text-sky-300",
   Complex: "border-amber-700 bg-amber-950/50 text-amber-300",
   Max: "border-fuchsia-600 bg-fuchsia-950/50 text-fuchsia-300",
+  Extreme: "border-rose-600 bg-rose-950/50 text-rose-300",
 };
 
 function sourceClass(s: string): string {
   if (s.startsWith("SQL")) return "border-blue-800 text-blue-300";
   if (s.startsWith("API")) return "border-violet-800 text-violet-300";
+  if (s.startsWith("Ontology")) return "border-rose-800 text-rose-300";
+  if (s.startsWith("Facts")) return "border-orange-800 text-orange-300";
   return "border-green-800 text-green-300"; // Docs
 }
 
-const EXAMPLES: { q: string; level: Level; sources: string[] }[] = [
+const EXAMPLES: { q: string; level: Level; sources: string[]; name?: string }[] = [
   {
     q: "Which business segment has the highest total revenue?",
     level: "Simple",
@@ -51,6 +54,12 @@ const EXAMPLES: { q: string; level: Level; sources: string[] }[] = [
     q: "The full picture: for our top EMEA Cloud customers by Blackwell Data Center revenue (sales database), how much DGX Cloud GPU usage have they consumed and how many support tickets are open for them (DGX + ITSM APIs), and how does our company-wide quarterly revenue and gross margin (financials database) compare with the exact Data Center revenue figure NVIDIA quotes in its latest press release (search the documents and cite it)?",
     level: "Max",
     sources: ["SQL ×2", "API ×2", "Docs"],
+  },
+  {
+    name: "Extremely complex query",
+    q: "For the Data Center segment and Blackwell product architecture, combine SQL sales revenue by fiscal period, relevant NVIDIA document evidence, DGX/API usage or support signals, extracted fact triplets, and POLE+O ontology context. Explain whether the ontology classifies Blackwell as a ProductArchitecture, cite the documents or facts that support the narrative, and compare the structured revenue signal with the API signal.",
+    level: "Extreme",
+    sources: ["SQL", "API", "Docs", "Ontology", "Facts"],
   },
 ];
 
@@ -105,6 +114,11 @@ export function ChatPanel({
                     </span>
                   ))}
                 </div>
+                {ex.name && (
+                  <div className="mb-1 text-xs font-semibold text-gray-100">
+                    {ex.name}
+                  </div>
+                )}
                 <span className="text-sm text-gray-300">{ex.q}</span>
               </button>
             ))}
