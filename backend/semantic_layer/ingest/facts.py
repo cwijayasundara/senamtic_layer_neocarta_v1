@@ -170,14 +170,12 @@ def _link_fact_anchor_count(driver: Driver, norm_field: str, relationship: str) 
             f"""
             MATCH (f:Fact)
             WHERE coalesce(f.{norm_field}, '') <> ''
-            CALL {{
-                WITH f
+            CALL (f) {{
                 MATCH (e:Entity {{norm: f.{norm_field}}})
                 MERGE (f)-[r:{relationship}]->(e)
                 RETURN count(r) AS entity_links
             }}
-            CALL {{
-                WITH f
+            CALL (f) {{
                 MATCH (v:Value {{norm: f.{norm_field}}})
                 MERGE (f)-[r:{relationship}]->(v)
                 RETURN count(r) AS value_links

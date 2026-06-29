@@ -24,6 +24,7 @@ class _FakeModel:
 class _FakeSession:
     def __init__(self):
         self.params = None
+        self.query = None
         self.chunk_exists = True
 
     def __enter__(self):
@@ -33,8 +34,11 @@ class _FakeSession:
         return None
 
     def run(self, query, **params):
+        self.query = query
         if "RETURN count(c) AS count" in query:
             return _FakeResult({"count": 1 if self.chunk_exists else 0})
+        if " AS links" in query:
+            return _FakeResult({"links": 0})
         self.params = params
         return _FakeResult({"loaded": len(params.get("rows", []))})
 
@@ -278,6 +282,15 @@ def test_load_facts_missing_chunk_returns_zero_and_creates_no_facts(neo4j_driver
     with neo4j_driver.session(database=settings.neo4j_database) as session:
         count = session.run("MATCH (f:Fact) RETURN count(f) AS count").single()["count"]
     assert count == 0
+
+
+def test_link_fact_anchor_query_uses_scoped_subqueries():
+    driver = _FakeDriver()
+    facts_mod._link_fact_anchor_count(driver, "subject_norm", "SUBJECT_REFERS_TO")
+    query = driver.session_obj.query
+
+    assert "CALL (f) {" in query
+    assert "CALL {\n                WITH f" not in query
 
 
 @pytest.mark.neo4j
